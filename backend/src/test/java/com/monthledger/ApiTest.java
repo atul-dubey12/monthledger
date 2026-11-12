@@ -33,9 +33,12 @@ class ApiTest {
     void seedsCategoriesAndDefaultSettings() throws Exception {
         mvc.perform(get("/api/categories").header("X-Api-Key", KEY))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(19)))
+            .andExpect(jsonPath("$", hasSize(22)))
             .andExpect(jsonPath("$[0].name").value("Salary"))
-            .andExpect(jsonPath("$[?(@.bucket == 'NEED')]", hasSize(7)));
+            .andExpect(jsonPath("$[?(@.bucket == 'NEED')]", hasSize(8)))
+            .andExpect(jsonPath("$[?(@.name == 'Home contribution')].monthlyBudget", contains(15000.0)))
+            .andExpect(jsonPath("$[?(@.name == 'Supplements')].bucket", contains("WANT")))
+            .andExpect(jsonPath("$[?(@.name == 'Shopping')].monthlyBudget", contains(2000.0)));
         mvc.perform(get("/api/settings").header("X-Api-Key", KEY))
             .andExpect(jsonPath("$.monthStartDay").value(5))
             .andExpect(jsonPath("$.needsPercent").value(50))

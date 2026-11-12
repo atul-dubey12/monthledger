@@ -1,5 +1,6 @@
 package com.monthledger.category;
 
+import com.monthledger.entry.EntryRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -12,8 +13,12 @@ import org.springframework.web.server.ResponseStatusException;
 public class CategoryController {
     private static final BigDecimal MAX_BUDGET = new BigDecimal("10000000");
     private final CategoryRepository repository;
+    private final EntryRepository entries;
 
-    public CategoryController(CategoryRepository repository) { this.repository = repository; }
+    public CategoryController(CategoryRepository repository, EntryRepository entries) {
+        this.repository = repository;
+        this.entries = entries;
+    }
 
     @GetMapping
     public List<Category> list() { return repository.findAllByOrderBySortOrderAscIdAsc(); }
@@ -35,6 +40,10 @@ public class CategoryController {
         Category category = repository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found."));
         if (!category.getName().equalsIgnoreCase(request.name().trim()) && repository.existsByNameIgnoreCaseAndArchivedFalse(request.name().trim())) {
             throw bad("A category with this name already exists.");
+        }
+        // Entries are checked against their category's bucket, so a used category keeps its bucket.
+        if (category.getBucket() != request.bucket() && entries.existsByCategoryId(id)) {
+            throw bad("This category already has entries, so it can't move to another bucket. Add a new category instead.");
         }
         apply(category, request);
         if (request.archived() != null) category.setArchived(request.archived());

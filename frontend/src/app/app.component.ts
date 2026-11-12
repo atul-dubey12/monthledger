@@ -4,14 +4,16 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank,
-  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap
+  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3
 } from 'lucide-angular';
 import { NetworkStatus, readApiKey, saveApiKey } from './api.interceptor';
 import { BudgetService } from './budget.service';
 import { BUCKETS, Bucket, BudgetSettings, Category, Entry, EntryKind, PAYMENT_MODES } from './models';
 import { budgetMonthFor, contains, daysLeft, isoDate, monthName, monthRange, shiftMonth, totalDays } from './month';
-import { byDay, entryBucket, monthTotals, parseIso } from './ledger';
+import { biggestRise, budgetStatuses, byDay, categoryAmounts, change, dailySpending, entryBucket, monthTotals, parseIso } from './ledger';
 import { EntrySheetComponent } from './entry-sheet.component';
+import { QuickExpenseComponent } from './quick-expense.component';
+import { CategoriesSheetComponent } from './categories-sheet.component';
 
 type Theme = 'system' | 'light' | 'dark';
 interface Toast { message: string; actionLabel?: string; action?: () => void; }
@@ -22,13 +24,13 @@ const DEFAULT_SETTINGS: BudgetSettings = { name: '', needsPercent: 50, wantsPerc
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent],
+  imports: [FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent, QuickExpenseComponent, CategoriesSheetComponent],
   templateUrl: './app.component.html'
 })
 export class AppComponent {
   readonly icons = {
     ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank, Settings2, ShieldCheck,
-    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap
+    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3
   };
   readonly buckets = BUCKETS;
   private readonly service = inject(BudgetService);
@@ -38,6 +40,8 @@ export class AppComponent {
   readonly settings = signal<BudgetSettings>(DEFAULT_SETTINGS);
   readonly categories = signal<Category[]>([]);
   readonly entries = signal<Entry[]>([]);
+  /** The month before the one on screen, for "compared with last month". */
+  readonly previousEntries = signal<Entry[]>([]);
   /** Which budget month `entries` holds, so a slow response for another month is ignored. */
   private entriesFor = '';
   readonly entriesLoading = signal(false);
@@ -69,6 +73,45 @@ export class AppComponent {
   /** What can still be spent per day for the rest of this month without eating into savings. */
   readonly perDay = computed(() => this.isCurrentMonth() && this.daysLeft() > 0 && this.totals().left > 0 ? this.totals().left / this.daysLeft() : null);
 
+  // ── Budgets ───────────────────────────────────────────────
+  readonly amounts = computed(() => categoryAmounts(this.entries()));
+  /** Every category with a limit, fullest first. */
+  readonly budgets = computed(() => budgetStatuses(this.categories(), this.amounts()).sort((a, b) => b.percent - a.percent));
+  readonly budgetAlerts = computed(() => this.budgets().filter((b) => b.level !== 'ok').length);
+
+  // ── Chart ─────────────────────────────────────────────────
+  readonly chartMode = signal<'WANT' | 'ALL'>('WANT');
+  readonly chartDays = computed(() => dailySpending(this.entries(), this.month().start, this.month().end, this.categoryById()));
+  readonly chartMax = computed(() => Math.max(1, ...this.chartDays().map((d) => this.chartMode() === 'WANT' ? d.wants : d.needs + d.wants)));
+  readonly hoveredDay = signal<string | null>(null);
+  readonly hoveredBar = computed(() => this.chartDays().find((d) => d.iso === this.hoveredDay()) ?? null);
+  /** Tapping a bar shows only that day's entries in Activity. */
+  readonly dayFilter = signal<string | null>(null);
+
+  // ── Compared with last month ──────────────────────────────
+  /** For the month in progress, compare with the same number of days of last month (5–12 Nov vs 5–12 Oct). */
+  readonly previousComparable = computed(() => {
+    const prev = shiftMonth(this.month(), -1, this.settings().monthStartDay);
+    if (!this.isCurrentMonth()) return this.previousEntries();
+    const elapsed = totalDays(this.month()) - this.daysLeft() + 1;
+    const cutoff = isoDate(new Date(prev.start.getFullYear(), prev.start.getMonth(), prev.start.getDate() + elapsed));
+    return this.previousEntries().filter((e) => e.date < cutoff);
+  });
+  readonly comparison = computed(() => {
+    if (!this.previousEntries().length) return null;
+    const now = this.totals();
+    const before = monthTotals(this.previousComparable(), this.categoryById());
+    const wantIds = new Set(this.categories().filter((c) => c.bucket === 'WANT').map((c) => c.id));
+    const rise = biggestRise(this.amounts(), categoryAmounts(this.previousComparable()), wantIds);
+    return {
+      label: this.isCurrentMonth() ? 'same point last month' : 'the month before',
+      spent: { now: now.spent, before: before.spent, change: change(now.spent, before.spent) },
+      wants: { now: now.wants, before: before.wants, change: change(now.wants, before.wants) },
+      rate: { now: now.savingsRate, before: before.savingsRate },
+      rise: rise && now.wants > before.wants ? { name: this.categoryById().get(rise.id)?.name ?? '', amount: rise.rise } : null,
+    };
+  });
+
   // ── Plan ──────────────────────────────────────────────────
   readonly activeCategories = computed(() => this.categories().filter((c) => !c.archived));
   readonly incomeCategories = computed(() => this.activeCategories().filter((c) => c.bucket === 'INCOME'));
@@ -97,7 +140,9 @@ export class AppComponent {
   readonly visibleEntries = computed(() => {
     const filter = this.filter();
     const query = this.search().trim().toLowerCase();
+    const day = this.dayFilter();
     return this.entries().filter((e) => {
+      if (day && e.date !== day) return false;
       if (filter !== 'ALL' && this.bucketOf(e) !== filter) return false;
       if (!query) return true;
       const c = this.categoryById().get(e.categoryId);
@@ -111,6 +156,10 @@ export class AppComponent {
   // ── Entry sheet ───────────────────────────────────────────
   /** undefined = closed. */
   readonly sheet = signal<{ kind: EntryKind; entry: Entry | null } | undefined>(undefined);
+  readonly quickOpen = signal(false);
+  readonly categoriesOpen = signal(false);
+  /** This month and last, so Quick expense can rank your usual categories. */
+  readonly recentEntries = computed(() => [...this.entries(), ...this.previousEntries()]);
   /** New entries default to today, or to the last day of a past month being viewed. */
   readonly defaultDate = computed(() => this.isCurrentMonth() ? this.todayIso
     : isoDate(new Date(this.month().end.getFullYear(), this.month().end.getMonth(), this.month().end.getDate() - 1)));
@@ -170,12 +219,17 @@ export class AppComponent {
     const month = this.month();
     const key = month.key;
     const last = new Date(month.end.getFullYear(), month.end.getMonth(), month.end.getDate() - 1);
-    if (this.entriesFor !== key) this.entries.set([]);
+    if (this.entriesFor !== key) { this.entries.set([]); this.previousEntries.set([]); this.dayFilter.set(null); }
     this.entriesFor = key;
     this.entriesLoading.set(true);
     this.service.entries(isoDate(month.start), isoDate(last)).subscribe({
       next: (entries) => { if (this.entriesFor !== key) return; this.entries.set(entries); this.entriesLoading.set(false); },
       error: (err) => { if (this.entriesFor !== key) return; this.entriesLoading.set(false); this.failed(err); },
+    });
+    const prev = shiftMonth(month, -1, this.settings().monthStartDay);
+    this.service.entries(isoDate(prev.start), isoDate(new Date(prev.end.getFullYear(), prev.end.getMonth(), prev.end.getDate() - 1))).subscribe({
+      next: (entries) => { if (this.entriesFor === key) this.previousEntries.set(entries); },
+      error: () => { /* the comparison card just stays hidden */ },
     });
   }
 
@@ -183,6 +237,27 @@ export class AppComponent {
   goToCurrent(): void { this.monthOffset.set(0); this.loadEntries(); }
 
   openSheet(kind: EntryKind, entry: Entry | null = null): void { this.sheet.set({ kind, entry }); }
+  onQuickSaved(entry: Entry): void {
+    this.quickOpen.set(false);
+    // Quick expense always logs today; jump back to this month if an older one was on screen.
+    if (!this.isCurrentMonth()) this.monthOffset.set(0);
+    const c = this.categoryById().get(entry.categoryId);
+    const after = (this.amounts().get(entry.categoryId) ?? 0) + entry.amount;
+    const limit = c?.monthlyBudget ?? 0;
+    const note = limit && after > limit ? ` · ₹${Math.round(after - limit).toLocaleString('en-IN')} over limit` : limit && after >= limit * 0.8 ? ` · ${Math.round((after / limit) * 100)}% of limit` : '';
+    this.showToast({ message: `Spent ${this.rupees(entry.amount)} · ${c?.name ?? ''}${note}`, actionLabel: 'Undo', action: () => this.undoCreate(entry) });
+    this.loadEntries();
+  }
+  onCategoryChanged(saved: Category): void {
+    this.categories.update((list) => list.some((c) => c.id === saved.id) ? list.map((c) => c.id === saved.id ? saved : c) : [...list, saved]);
+  }
+  pickDay(iso: string): void {
+    this.dayFilter.set(this.dayFilter() === iso ? null : iso);
+    if (this.dayFilter()) setTimeout(() => this.scrollTo('activity'));
+  }
+  barHeight(value: number): number { return value ? Math.max(3, (value / this.chartMax()) * 100) : 0; }
+  /** First day, then every 5th date; days 1–2 are skipped so they don't run into 30. */
+  showDayLabel(date: Date, index: number): boolean { return index === 0 || date.getDate() % 5 === 0; }
   onSaved(event: { entry: Entry; edited: boolean; addAnother: boolean }): void {
     if (!event.addAnother) this.sheet.set(undefined);
     const e = event.entry;

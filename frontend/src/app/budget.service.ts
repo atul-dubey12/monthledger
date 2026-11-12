@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api.config';
-import { BudgetSettings, Category, Entry, EntryDraft } from './models';
+import { BudgetSettings, Category, CategoryDraft, Entry, EntryDraft } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class BudgetService {
@@ -13,6 +13,8 @@ export class BudgetService {
   wake(): void { this.http.get(`${this.api}/health`).subscribe({ error: () => {} }); }
 
   categories(): Observable<Category[]> { return this.http.get<Category[]>(`${this.api}/categories`); }
+  createCategory(c: CategoryDraft): Observable<Category> { return this.http.post<Category>(`${this.api}/categories`, c); }
+  updateCategory(id: number, c: CategoryDraft & { archived?: boolean }): Observable<Category> { return this.http.put<Category>(`${this.api}/categories/${id}`, c); }
   settings(): Observable<BudgetSettings> { return this.http.get<BudgetSettings>(`${this.api}/settings`); }
   saveSettings(settings: BudgetSettings): Observable<BudgetSettings> { return this.http.put<BudgetSettings>(`${this.api}/settings`, settings); }
 

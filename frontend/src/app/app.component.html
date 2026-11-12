@@ -8,6 +8,7 @@
       <button class="nav-item" (click)="scrollTo('top')"><i-lucide [img]="icons.LayoutDashboard"></i-lucide><span>Overview</span></button>
       <button class="nav-item" (click)="scrollTo('plan')"><i-lucide [img]="icons.Target"></i-lucide><span>Budget plan</span></button>
       <button class="nav-item" (click)="scrollTo('activity')"><i-lucide [img]="icons.Receipt"></i-lucide><span>Activity</span></button>
+      <button class="nav-item" (click)="categoriesOpen.set(true)"><i-lucide [img]="icons.Tags"></i-lucide><span>Categories & limits</span></button>
       <button class="nav-item" (click)="openSettings()"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
     </nav>
     <div class="side-spacer"></div>
@@ -46,7 +47,8 @@
         <div class="welcome-actions">
           <button class="secondary-button" (click)="openSheet('INCOME')"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide> Add income</button>
           <button class="secondary-button" (click)="openSheet('SAVING')"><i-lucide [img]="icons.PiggyBank"></i-lucide> Add saving</button>
-          <button class="primary-button" (click)="openSheet('EXPENSE')"><i-lucide [img]="icons.Plus"></i-lucide> Add expense</button>
+          <button class="secondary-button" (click)="openSheet('EXPENSE')"><i-lucide [img]="icons.Plus"></i-lucide> Add expense</button>
+          <button class="primary-button quick-button" (click)="quickOpen.set(true)"><i-lucide [img]="icons.Zap"></i-lucide> Quick expense</button>
         </div>
       </section>
 
@@ -97,10 +99,104 @@
         </article>
       </section>
 
+      <section class="panel chart-panel" aria-labelledby="chart-title">
+        <div class="panel-heading">
+          <div><h2 id="chart-title">Daily spending</h2><p>{{ monthRange() || monthName() }} · tap a day to see its entries</p></div>
+          <div class="segmented" role="tablist" aria-label="Chart shows">
+            <button role="tab" [attr.aria-selected]="chartMode() === 'WANT'" [class.selected]="chartMode() === 'WANT'" (click)="chartMode.set('WANT')">Wants</button>
+            <button role="tab" [attr.aria-selected]="chartMode() === 'ALL'" [class.selected]="chartMode() === 'ALL'" (click)="chartMode.set('ALL')">All spending</button>
+          </div>
+        </div>
+        <div class="chart chart-dense" (mouseleave)="hoveredDay.set(null)">
+          @for (d of chartDays(); track d.iso; let i = $index) {
+            <button class="chart-day" [class.is-today]="d.iso === todayIso" [class.is-selected]="d.iso === dayFilter()"
+                    (mouseenter)="hoveredDay.set(d.iso)" (focus)="hoveredDay.set(d.iso)" (blur)="hoveredDay.set(null)" (click)="pickDay(d.iso)"
+                    [attr.aria-label]="(d.date | date:'EEE d MMM') + ': needs ₹' + d.needs + ', wants ₹' + d.wants">
+              <span class="bars">
+                @if (chartMode() === 'ALL') { <span class="bar bar-need" [style.height.%]="barHeight(d.needs)"></span> }
+                <span class="bar bar-want" [style.height.%]="barHeight(d.wants)"></span>
+              </span>
+              <span class="day-label">{{ showDayLabel(d.date, i) ? d.date.getDate() : '' }}</span>
+            </button>
+          }
+          @if (hoveredBar(); as h) {
+            <div class="chart-tooltip" role="status">
+              <strong>{{ h.date | date:'EEE, d MMM' }}</strong>
+              <span><i class="swatch swatch-need"></i>Needs <b>{{ h.needs | currency:'INR':'symbol':'1.0-0' }}</b></span>
+              <span><i class="swatch swatch-want"></i>Wants <b>{{ h.wants | currency:'INR':'symbol':'1.0-0' }}</b></span>
+            </div>
+          }
+        </div>
+        <div class="legend chart-legend">
+          @if (chartMode() === 'ALL') { <span><i class="swatch swatch-need"></i>Needs</span> }
+          <span><i class="swatch swatch-want"></i>Wants</span>
+        </div>
+        <table class="sr-only">
+          <caption>Daily spending</caption>
+          <tr><th>Day</th><th>Needs</th><th>Wants</th></tr>
+          @for (d of chartDays(); track d.iso) { <tr><td>{{ d.date | date:'EEE d MMM' }}</td><td>{{ d.needs }}</td><td>{{ d.wants }}</td></tr> }
+        </table>
+      </section>
+
+      <section class="middle-grid">
+        <article class="panel watch-panel" aria-labelledby="watch-title">
+          <div class="panel-heading">
+            <div><h2 id="watch-title">Budget watch</h2><p>@if (budgetAlerts()) { {{ budgetAlerts() }} {{ budgetAlerts() === 1 ? 'category needs' : 'categories need' }} attention } @else { Monthly limits per category }</p></div>
+            <button class="text-button" (click)="categoriesOpen.set(true)">Set limits <i-lucide [img]="icons.Tags"></i-lucide></button>
+          </div>
+          @for (b of budgets(); track b.category.id) {
+            <div class="watch-row" [attr.data-level]="b.level">
+              <span class="watch-name"><span aria-hidden="true">{{ b.category.icon }}</span> {{ b.category.name }}</span>
+              <span class="watch-amount"><b>{{ b.spent | currency:'INR':'symbol':'1.0-0' }}</b> / {{ b.limit | currency:'INR':'symbol':'1.0-0' }}</span>
+              <div class="progress watch-progress" role="progressbar" [attr.aria-valuenow]="b.percent" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="b.category.name + ' limit used'">
+                <span [style.width.%]="b.percent > 100 ? 100 : b.percent"></span>
+              </div>
+              <small class="watch-status">
+                @if (b.level === 'over') { Over by {{ (b.spent - b.limit) | currency:'INR':'symbol':'1.0-0' }} }
+                @else if (b.level === 'warn') { {{ b.percent }}% used · {{ (b.limit - b.spent) | currency:'INR':'symbol':'1.0-0' }} left }
+                @else if (b.spent >= b.limit) { Used in full }
+                @else { {{ (b.limit - b.spent) | currency:'INR':'symbol':'1.0-0' }} left }
+              </small>
+            </div>
+          } @empty {
+            <p class="muted-empty">No limits yet. Set one for categories like eating out or shopping, and you'll see how much is left here.</p>
+            <button class="secondary-button" (click)="categoriesOpen.set(true)"><i-lucide [img]="icons.Tags"></i-lucide> Set limits</button>
+          }
+        </article>
+
+        <article class="panel compare-panel" aria-labelledby="compare-title">
+          <div class="panel-heading"><div><h2 id="compare-title">Compared with last month</h2><p>@if (comparison(); as c) { Against the {{ c.label }} } @else { Shows once last month has entries }</p></div></div>
+          @if (comparison(); as c) {
+            <ul class="compare-list">
+              <li>
+                <i-lucide [img]="(c.spent.change ?? 0) > 0 ? icons.TrendingUp : icons.TrendingDown"></i-lucide>
+                <span>Spent <b>{{ c.spent.now | currency:'INR':'symbol':'1.0-0' }}</b> vs {{ c.spent.before | currency:'INR':'symbol':'1.0-0' }}
+                  @if (c.spent.change !== null) { <em [class.up]="c.spent.change > 0" [class.down]="c.spent.change < 0">{{ c.spent.change > 0 ? '+' : '' }}{{ c.spent.change }}%</em> }</span>
+              </li>
+              <li>
+                <i-lucide [img]="(c.wants.change ?? 0) > 0 ? icons.TrendingUp : icons.TrendingDown"></i-lucide>
+                <span>Wants <b>{{ c.wants.now | currency:'INR':'symbol':'1.0-0' }}</b> vs {{ c.wants.before | currency:'INR':'symbol':'1.0-0' }}
+                  @if (c.wants.change !== null) { <em [class.up]="c.wants.change > 0" [class.down]="c.wants.change < 0">{{ c.wants.change > 0 ? '+' : '' }}{{ c.wants.change }}%</em> }
+                  @if (c.rise) { — mostly {{ c.rise.name }} (+{{ c.rise.amount | currency:'INR':'symbol':'1.0-0' }}) }</span>
+              </li>
+              <li>
+                <i-lucide [img]="icons.PiggyBank"></i-lucide>
+                <span>Savings rate <b>{{ c.rate.now !== null ? c.rate.now + '%' : '—' }}</b> vs {{ c.rate.before !== null ? c.rate.before + '%' : '—' }} · target {{ settings().savingsPercent }}%</span>
+              </li>
+            </ul>
+          } @else {
+            <p class="muted-empty">Keep logging this month. From next month you'll see whether you spent more or less, and on what.</p>
+          }
+        </article>
+      </section>
+
       <section id="plan" class="panel plan-panel" aria-labelledby="plan-title">
         <div class="panel-heading">
           <div><h2 id="plan-title">Your {{ settings().needsPercent }} / {{ settings().wantsPercent }} / {{ settings().savingsPercent }} plan</h2><p>Every expense category belongs to one bucket</p></div>
-          <button class="text-button" (click)="openSettings()">Change split <i-lucide [img]="icons.Settings2"></i-lucide></button>
+          <div class="plan-actions">
+            <button class="text-button" (click)="categoriesOpen.set(true)">Categories & limits <i-lucide [img]="icons.Tags"></i-lucide></button>
+            <button class="text-button" (click)="openSettings()">Change split <i-lucide [img]="icons.Settings2"></i-lucide></button>
+          </div>
         </div>
         @if (loading() && !categories().length) {
           <div class="loading-state">Loading your categories…</div>
@@ -159,6 +255,9 @@
           </div>
         </div>
 
+        @if (dayFilter(); as day) {
+          <div class="day-filter"><span>Showing {{ day === todayIso ? 'today' : (day | date:'EEEE, d MMM') }}</span><button class="text-button" (click)="dayFilter.set(null)"><i-lucide [img]="icons.X"></i-lucide> Show all days</button></div>
+        }
         @if (entriesLoading() && !entries().length) {
           <div class="loading-state">Loading {{ monthName() }}…</div>
         } @else {
@@ -180,7 +279,7 @@
           } @empty {
             <div class="empty-state">
               <span class="empty-icon"><i-lucide [img]="icons.Receipt"></i-lucide></span>
-              @if (search() || filter() !== 'ALL') {
+              @if (search() || filter() !== 'ALL' || dayFilter()) {
                 <strong>No matches</strong><p>Nothing in {{ monthName() }} matches this filter.</p>
               } @else {
                 <strong>No entries for {{ monthName() }} yet</strong>
@@ -201,9 +300,16 @@
 
 <div class="bottom-bar">
   <button class="secondary-button" (click)="openSheet('INCOME')"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide> Income</button>
-  <button class="primary-button bar-main" (click)="openSheet('EXPENSE')"><i-lucide [img]="icons.Plus"></i-lucide> Expense</button>
-  <button class="secondary-button" (click)="openSheet('SAVING')"><i-lucide [img]="icons.PiggyBank"></i-lucide> Save</button>
+  <button class="primary-button bar-main quick-button" (click)="quickOpen.set(true)"><i-lucide [img]="icons.Zap"></i-lucide> Quick expense</button>
+  <button class="secondary-button" (click)="openSheet('EXPENSE')" aria-label="Add expense, income or saving with all details"><i-lucide [img]="icons.Plus"></i-lucide> Add</button>
 </div>
+
+@if (quickOpen()) {
+  <app-quick-expense [categories]="categories()" [history]="recentEntries()" [spent]="amounts()" (saved)="onQuickSaved($event)" (closed)="quickOpen.set(false)"></app-quick-expense>
+}
+@if (categoriesOpen()) {
+  <app-categories-sheet [categories]="categories()" [settings]="settings()" [income]="totals().income" (changed)="onCategoryChanged($event)" (closed)="categoriesOpen.set(false)"></app-categories-sheet>
+}
 
 @if (sheet(); as sh) {
   <app-entry-sheet [kind]="sh.kind" [entry]="sh.entry" [categories]="categories()" [defaultDate]="defaultDate()" (saved)="onSaved($event)" (closed)="sheet.set(undefined)"></app-entry-sheet>

@@ -70,6 +70,16 @@ class EntryApiTest {
     }
 
     @Test
+    void usedCategoryCannotChangeBucket() throws Exception {
+        post(entry("2026-11-09", "EXPENSE", "120", 13)).andExpect(status().isCreated());   // 13 = Entertainment & OTT (WANT)
+        String move = "{\"name\":\"Entertainment & OTT\",\"icon\":\"🎬\",\"bucket\":\"NEED\",\"monthlyBudget\":500}";
+        mvc.perform(put("/api/categories/13").contentType(MediaType.APPLICATION_JSON).content(move)).andExpect(status().isBadRequest());
+        String budget = "{\"name\":\"OTT & movies\",\"icon\":\"🎬\",\"bucket\":\"WANT\",\"monthlyBudget\":500}";
+        mvc.perform(put("/api/categories/13").contentType(MediaType.APPLICATION_JSON).content(budget))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("OTT & movies")).andExpect(jsonPath("$.monthlyBudget").value(500));
+    }
+
+    @Test
     void listNeedsAValidRange() throws Exception {
         mvc.perform(get("/api/entries").param("from", "2026-11-10").param("to", "2026-11-01")).andExpect(status().isBadRequest());
         mvc.perform(get("/api/entries").param("from", "2024-01-01").param("to", "2026-11-01")).andExpect(status().isBadRequest());

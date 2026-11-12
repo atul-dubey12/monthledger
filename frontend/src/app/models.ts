@@ -10,6 +10,8 @@ export interface Category {
   archived: boolean;
 }
 
+export type CategoryDraft = Pick<Category, 'name' | 'icon' | 'bucket' | 'monthlyBudget'>;
+
 /** Shared across devices (stored on the server). Theme is per device and lives in localStorage. */
 export interface BudgetSettings {
   name: string;
