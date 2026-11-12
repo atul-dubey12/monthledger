@@ -98,7 +98,7 @@ Default categories:
 ## 3. Build steps (one per session; check before moving on)
 
 1. **Scaffold.** ✅ DONE (12 Nov 2026). Git repo, Angular 19 app (same as ShiftLedger, runs on Node 18), Spring Boot app, design tokens and shell, Flyway V1 with seeded categories + settings (start day 5, 50/30/20), `/api/categories` + `/api/settings`, Settings sheet with server key, split and start day. Local: API :8081, site :4201.
-2. **Entries + month view.** Quick add, full entry form, month switcher, Income / Spent / Saved / Left cards, activity list with search and filters, edit and delete with undo.
+2. **Entries + month view.** ✅ DONE (12 Nov 2026). Flyway V2 `entries` (kind INCOME / EXPENSE / SAVING / SAVING_WITHDRAWAL, category must match the kind's bucket), `/api/entries` list by date range + create / update / delete. One add/edit sheet (Expense · Income · Saving tabs, remembers last category and payment mode), Income / Spent / Saved / Left-to-spend cards with ₹ per day, actual vs target on each 50/30/20 bucket, per-category amounts, activity by day with search, filters, edit, delete + undo.
 3. **Budgets.** Needs / Wants / Savings bars against the target split, per-category budgets with progress, safe-to-spend per day, daily chart.
 4. **Savings goals.** Goals CRUD, saving entries linked to goals, goal progress, monthly amount needed, savings-rate trend.
 5. **Recurring + insights.** "Due this month" list, the insight lines, comparison with last month.

@@ -43,6 +43,11 @@
           <h1>{{ greeting() }}</h1>
           <p class="subtitle">Salary in — see where every rupee goes.</p>
         </div>
+        <div class="welcome-actions">
+          <button class="secondary-button" (click)="openSheet('INCOME')"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide> Add income</button>
+          <button class="secondary-button" (click)="openSheet('SAVING')"><i-lucide [img]="icons.PiggyBank"></i-lucide> Add saving</button>
+          <button class="primary-button" (click)="openSheet('EXPENSE')"><i-lucide [img]="icons.Plus"></i-lucide> Add expense</button>
+        </div>
       </section>
 
       <div class="period-bar">
@@ -65,21 +70,30 @@
         </div>
       }
 
-      <section class="stats-grid" aria-label="Month summary">
+      <section class="stats-grid stats-grid-4" aria-label="Month summary">
         <article class="stat-card">
           <div class="stat-top"><span class="stat-icon income-icon"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide></span><span class="stat-label">Income</span></div>
-          <div class="stat-value">{{ 0 | currency:'INR':'symbol':'1.0-0' }}</div>
-          <div class="stat-sub">Salary and anything else that came in</div>
+          <div class="stat-value">{{ totals().income | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-sub">@if (totals().income) { Salary and everything else } @else { <button class="text-button" (click)="openSheet('INCOME')">Add your salary <i-lucide [img]="icons.Plus"></i-lucide></button> }</div>
         </article>
         <article class="stat-card">
           <div class="stat-top"><span class="stat-icon expense-icon"><i-lucide [img]="icons.ArrowUpRight"></i-lucide></span><span class="stat-label">Spent</span></div>
-          <div class="stat-value">{{ 0 | currency:'INR':'symbol':'1.0-0' }}</div>
-          <div class="stat-sub">Needs + wants</div>
+          <div class="stat-value">{{ totals().spent | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-sub">Needs {{ totals().needs | currency:'INR':'symbol':'1.0-0' }} · Wants {{ totals().wants | currency:'INR':'symbol':'1.0-0' }}</div>
         </article>
-        <article class="stat-card takehome-card">
+        <article class="stat-card">
           <div class="stat-top"><span class="stat-icon takehome-icon"><i-lucide [img]="icons.PiggyBank"></i-lucide></span><span class="stat-label">Saved</span></div>
-          <div class="stat-value">{{ 0 | currency:'INR':'symbol':'1.0-0' }}</div>
-          <div class="stat-sub">Target: {{ settings().savingsPercent }}% of income</div>
+          <div class="stat-value" [class.negative]="totals().saved < 0">{{ totals().saved | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-sub">@if (totals().savingsRate !== null) { {{ totals().savingsRate }}% of income · target {{ settings().savingsPercent }}% } @else { Target: {{ settings().savingsPercent }}% of income }</div>
+        </article>
+        <article class="stat-card left-card" [class.left-over]="totals().left < 0">
+          <div class="stat-top"><span class="stat-icon left-icon"><i-lucide [img]="icons.Wallet"></i-lucide></span><span class="stat-label">Left to spend</span></div>
+          <div class="stat-value" [class.negative]="totals().left < 0">{{ totals().left | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-sub">
+            @if (totals().left < 0) { Over by {{ abs(totals().left) | currency:'INR':'symbol':'1.0-0' }} this month }
+            @else if (perDay() !== null) { About {{ perDay() | currency:'INR':'symbol':'1.0-0' }} a day for {{ daysLeft() }} {{ daysLeft() === 1 ? 'day' : 'days' }} }
+            @else { Income − spent − saved }
+          </div>
         </article>
       </section>
 
@@ -98,10 +112,25 @@
                   <strong>{{ b.label }}</strong>
                   <span class="bucket-percent">{{ b.percent }}%</span>
                 </div>
-                <p class="bucket-hint">{{ b.hint }}</p>
+                @if (b.target > 0) {
+                  <div class="bucket-amounts">
+                    <strong>{{ b.actual | currency:'INR':'symbol':'1.0-0' }}</strong> {{ b.key === 'SAVING' ? 'saved' : 'spent' }} of {{ b.target | currency:'INR':'symbol':'1.0-0' }}
+                  </div>
+                  <div class="progress bucket-progress" [class.over]="b.key !== 'SAVING' && (b.used ?? 0) > 100" role="progressbar"
+                       [attr.aria-valuenow]="b.used" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="b.label + ' used'">
+                    <span [style.width.%]="b.used !== null ? (b.used > 100 ? 100 : b.used < 0 ? 0 : b.used) : 0"></span>
+                  </div>
+                  <small class="bucket-status">
+                    @if (b.key === 'SAVING') { {{ (b.used ?? 0) >= 100 ? 'Target reached 🎉' : ((b.target - b.actual) | currency:'INR':'symbol':'1.0-0') + ' to go' }} }
+                    @else if ((b.used ?? 0) > 100) { Over by {{ (b.actual - b.target) | currency:'INR':'symbol':'1.0-0' }} }
+                    @else { {{ (b.target - b.actual) | currency:'INR':'symbol':'1.0-0' }} left }
+                  </small>
+                } @else {
+                  <p class="bucket-hint">{{ b.hint }}</p>
+                }
                 <ul class="bucket-cats">
                   @for (c of b.categories; track c.id) {
-                    <li><span aria-hidden="true">{{ c.icon }}</span>{{ c.name }}@if (c.monthlyBudget) { <b>{{ c.monthlyBudget | currency:'INR':'symbol':'1.0-0' }}</b> }</li>
+                    <li [class.has-amount]="b.spentIn(c.id)"><span aria-hidden="true">{{ c.icon }}</span>{{ c.name }}@if (b.spentIn(c.id)) { <b>{{ b.spentIn(c.id) | currency:'INR':'symbol':'1.0-0' }}</b> }</li>
                   }
                 </ul>
               </article>
@@ -117,18 +146,68 @@
 
       <section id="activity" class="panel activity-panel">
         <div class="panel-heading activity-heading">
-          <div><h2>Activity</h2><p>{{ monthName() }}</p></div>
+          <div><h2>Activity</h2><p>{{ monthName() }} · tap an entry to edit it</p></div>
+          <div class="activity-actions">
+            <label class="search-box"><i-lucide [img]="icons.Search"></i-lucide><input type="search" placeholder="Search notes, amounts…" aria-label="Search entries" [ngModel]="search()" (ngModelChange)="search.set($event)"></label>
+            <div class="filter-tabs" role="group" aria-label="Show">
+              <button [class.selected]="filter() === 'ALL'" (click)="filter.set('ALL')">All</button>
+              <button [class.selected]="filter() === 'INCOME'" (click)="filter.set('INCOME')">Income</button>
+              <button [class.selected]="filter() === 'NEED'" (click)="filter.set('NEED')">Needs</button>
+              <button [class.selected]="filter() === 'WANT'" (click)="filter.set('WANT')">Wants</button>
+              <button [class.selected]="filter() === 'SAVING'" (click)="filter.set('SAVING')">Savings</button>
+            </div>
+          </div>
         </div>
-        <div class="empty-state">
-          <span class="empty-icon"><i-lucide [img]="icons.Receipt"></i-lucide></span>
-          <strong>No entries for {{ monthName() }} yet</strong>
-          <p>Income, spending and savings you log will show here, grouped by day.</p>
-        </div>
+
+        @if (entriesLoading() && !entries().length) {
+          <div class="loading-state">Loading {{ monthName() }}…</div>
+        } @else {
+          @for (d of days(); track d.date) {
+            <div class="day-group-head">
+              <span>{{ d.date === todayIso ? 'Today' : d.date === yesterdayIso ? 'Yesterday' : (d.day | date:'EEEE, d MMM') }}</span>
+            </div>
+            @for (e of d.entries; track e.id) {
+              <div class="entry-row">
+                <button class="entry-main" (click)="openSheet(e.kind, e)" [attr.aria-label]="'Edit ' + entryTitle(e)">
+                  <span class="entry-icon emoji-icon" [attr.data-bucket]="bucketOf(e)">{{ categoryOf(e)?.icon }}</span>
+                  <span class="entry-text"><strong>{{ entryTitle(e) }}</strong><small>{{ entrySubtitle(e) }}</small></span>
+                  <strong class="entry-amount" [attr.data-kind]="e.kind">{{ entrySign(e) }}{{ e.amount | currency:'INR':'symbol':'1.0-2' }}</strong>
+                </button>
+                <button class="row-action" aria-label="Edit entry" (click)="openSheet(e.kind, e)"><i-lucide [img]="icons.Pencil"></i-lucide></button>
+                <button class="row-action row-delete" aria-label="Delete entry" (click)="removeEntry(e)"><i-lucide [img]="icons.Trash2"></i-lucide></button>
+              </div>
+            }
+          } @empty {
+            <div class="empty-state">
+              <span class="empty-icon"><i-lucide [img]="icons.Receipt"></i-lucide></span>
+              @if (search() || filter() !== 'ALL') {
+                <strong>No matches</strong><p>Nothing in {{ monthName() }} matches this filter.</p>
+              } @else {
+                <strong>No entries for {{ monthName() }} yet</strong>
+                <p>Start with your salary, then log spending as it happens.</p>
+                <button class="primary-button" (click)="openSheet('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Add salary</button>
+              }
+            </div>
+          }
+        }
+        @if (entries().length) {
+          <div class="table-footer"><span>{{ visibleEntries().length }} {{ visibleEntries().length === 1 ? 'entry' : 'entries' }}</span></div>
+        }
       </section>
       <footer class="footer"><span>Pay yourself first <span>♥</span></span><span>MONTHLEDGER</span></footer>
     </div>
   </main>
 </div>
+
+<div class="bottom-bar">
+  <button class="secondary-button" (click)="openSheet('INCOME')"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide> Income</button>
+  <button class="primary-button bar-main" (click)="openSheet('EXPENSE')"><i-lucide [img]="icons.Plus"></i-lucide> Expense</button>
+  <button class="secondary-button" (click)="openSheet('SAVING')"><i-lucide [img]="icons.PiggyBank"></i-lucide> Save</button>
+</div>
+
+@if (sheet(); as sh) {
+  <app-entry-sheet [kind]="sh.kind" [entry]="sh.entry" [categories]="categories()" [defaultDate]="defaultDate()" (saved)="onSaved($event)" (closed)="sheet.set(undefined)"></app-entry-sheet>
+}
 
 @if (settingsOpen()) {
   <div class="modal-backdrop" (click)="closeSettings()">
@@ -186,5 +265,8 @@
 }
 
 @if (toast(); as t) {
-  <div class="toast" role="status"><i-lucide [img]="icons.Check"></i-lucide><span>{{ t.message }}</span></div>
+  <div class="toast" role="status">
+    <i-lucide [img]="icons.Check"></i-lucide><span>{{ t.message }}</span>
+    @if (t.actionLabel) { <button (click)="runToastAction()"><i-lucide [img]="icons.Undo2"></i-lucide>{{ t.actionLabel }}</button> }
+  </div>
 }

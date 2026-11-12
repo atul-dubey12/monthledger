@@ -24,3 +24,30 @@ export const BUCKETS: { key: Exclude<Bucket, 'INCOME'>; label: string; percentKe
   { key: 'WANT', label: 'Wants', percentKey: 'wantsPercent', hint: 'Eating out, shopping, fun — nice, but optional' },
   { key: 'SAVING', label: 'Savings', percentKey: 'savingsPercent', hint: 'Emergency fund, SIPs, goals — pay yourself first' },
 ];
+
+export type EntryKind = 'INCOME' | 'EXPENSE' | 'SAVING' | 'SAVING_WITHDRAWAL';
+export type PaymentMode = 'UPI' | 'CARD' | 'CASH' | 'BANK';
+
+export interface Entry {
+  id: number;
+  /** yyyy-MM-dd */
+  date: string;
+  kind: EntryKind;
+  amount: number;
+  categoryId: number;
+  paymentMode: PaymentMode | null;
+  note: string | null;
+}
+export type EntryDraft = Omit<Entry, 'id'>;
+
+/** Which category buckets each kind of entry may use. Mirrors EntryKind.java. */
+export const KIND_BUCKETS: Record<EntryKind, Bucket[]> = {
+  INCOME: ['INCOME'],
+  EXPENSE: ['NEED', 'WANT'],
+  SAVING: ['SAVING'],
+  SAVING_WITHDRAWAL: ['SAVING'],
+};
+
+export const PAYMENT_MODES: { key: PaymentMode; label: string }[] = [
+  { key: 'UPI', label: 'UPI' }, { key: 'CARD', label: 'Card' }, { key: 'CASH', label: 'Cash' }, { key: 'BANK', label: 'Bank' },
+];
