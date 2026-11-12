@@ -1,0 +1,190 @@
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="#top" aria-label="MonthLedger home">
+      <span class="brand-mark"><i-lucide [img]="icons.Wallet"></i-lucide></span>
+      <span>month<span class="brand-light">ledger</span><small>YOUR SALARY, PLACED</small></span>
+    </a>
+    <nav aria-label="Sections">
+      <button class="nav-item" (click)="scrollTo('top')"><i-lucide [img]="icons.LayoutDashboard"></i-lucide><span>Overview</span></button>
+      <button class="nav-item" (click)="scrollTo('plan')"><i-lucide [img]="icons.Target"></i-lucide><span>Budget plan</span></button>
+      <button class="nav-item" (click)="scrollTo('activity')"><i-lucide [img]="icons.Receipt"></i-lucide><span>Activity</span></button>
+      <button class="nav-item" (click)="openSettings()"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
+    </nav>
+    <div class="side-spacer"></div>
+    <div class="goal-card">
+      <div class="goal-card-head"><span class="note-icon"><i-lucide [img]="icons.PiggyBank"></i-lucide></span><strong>Your split</strong></div>
+      <div class="goal-card-value">{{ settings().needsPercent }} / {{ settings().wantsPercent }} / {{ settings().savingsPercent }}</div>
+      <small>Needs · Wants · Savings</small>
+    </div>
+    <button class="profile" (click)="openSettings()">
+      <span class="avatar">{{ (settings().name || 'M')[0].toUpperCase() }}</span>
+      <span><strong>{{ settings().name || 'My budget' }}</strong><small>Month starts on the {{ ordinal(settings().monthStartDay) }}</small></span>
+      <i-lucide [img]="icons.Settings2"></i-lucide>
+    </button>
+  </aside>
+
+  <main id="top" class="main-content">
+    <header class="topbar">
+      <div class="mobile-brand"><span class="brand-mark"><i-lucide [img]="icons.Wallet"></i-lucide></span>monthledger</div>
+      <div class="breadcrumb">Budget <span>/</span> <strong>Overview</strong></div>
+      <div class="top-actions">
+        <button class="icon-button" (click)="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode"><i-lucide [img]="isDark() ? icons.Sun : icons.Moon"></i-lucide></button>
+        <button class="icon-button" (click)="openSettings()" aria-label="Settings" title="Settings"><i-lucide [img]="icons.Settings2"></i-lucide></button>
+      </div>
+    </header>
+
+    <div class="content-wrap">
+      @if (slowNetwork()) { <div class="connection-banner wake-banner" role="status"><i-lucide [img]="icons.Timer"></i-lucide>Waking up the server… first load can take up to a minute.</div> }
+      @if (needsKey()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.ShieldCheck"></i-lucide>Enter your server key to load your budget. <button class="text-button" (click)="openSettings()">Open Settings</button></div> }
+      @if (error()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.CircleAlert"></i-lucide>{{ error() }} <button class="text-button" (click)="refresh()">Retry</button></div> }
+
+      <section class="welcome-row">
+        <div>
+          <h1>{{ greeting() }}</h1>
+          <p class="subtitle">Salary in — see where every rupee goes.</p>
+        </div>
+      </section>
+
+      <div class="period-bar">
+        <div class="month-title">
+          <strong>{{ monthName() }}</strong>
+          <small>
+            @if (monthRange()) { {{ monthRange() }} · }
+            @if (isCurrentMonth()) { {{ daysLeft() }} {{ daysLeft() === 1 ? 'day' : 'days' }} left } @else { <button class="text-button" (click)="goToCurrent()">Back to this month</button> }
+          </small>
+        </div>
+        <div class="period-nav">
+          <button class="icon-button" (click)="step(-1)" aria-label="Previous month"><i-lucide [img]="icons.ChevronLeft"></i-lucide></button>
+          <span class="period-label"><i-lucide [img]="icons.CalendarDays"></i-lucide>{{ isCurrentMonth() ? 'This month' : monthName() }}</span>
+          <button class="icon-button" (click)="step(1)" [disabled]="isCurrentMonth()" aria-label="Next month"><i-lucide [img]="icons.ChevronRight"></i-lucide></button>
+        </div>
+      </div>
+      @if (isCurrentMonth()) {
+        <div class="month-progress" role="progressbar" [attr.aria-valuenow]="monthProgress()" aria-valuemin="0" aria-valuemax="100" aria-label="How far through the month">
+          <span [style.width.%]="monthProgress()"></span>
+        </div>
+      }
+
+      <section class="stats-grid" aria-label="Month summary">
+        <article class="stat-card">
+          <div class="stat-top"><span class="stat-icon income-icon"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide></span><span class="stat-label">Income</span></div>
+          <div class="stat-value">{{ 0 | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-sub">Salary and anything else that came in</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-top"><span class="stat-icon expense-icon"><i-lucide [img]="icons.ArrowUpRight"></i-lucide></span><span class="stat-label">Spent</span></div>
+          <div class="stat-value">{{ 0 | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-sub">Needs + wants</div>
+        </article>
+        <article class="stat-card takehome-card">
+          <div class="stat-top"><span class="stat-icon takehome-icon"><i-lucide [img]="icons.PiggyBank"></i-lucide></span><span class="stat-label">Saved</span></div>
+          <div class="stat-value">{{ 0 | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-sub">Target: {{ settings().savingsPercent }}% of income</div>
+        </article>
+      </section>
+
+      <section id="plan" class="panel plan-panel" aria-labelledby="plan-title">
+        <div class="panel-heading">
+          <div><h2 id="plan-title">Your {{ settings().needsPercent }} / {{ settings().wantsPercent }} / {{ settings().savingsPercent }} plan</h2><p>Every expense category belongs to one bucket</p></div>
+          <button class="text-button" (click)="openSettings()">Change split <i-lucide [img]="icons.Settings2"></i-lucide></button>
+        </div>
+        @if (loading() && !categories().length) {
+          <div class="loading-state">Loading your categories…</div>
+        } @else {
+          <div class="bucket-grid">
+            @for (b of plan(); track b.key) {
+              <article class="bucket-card" [attr.data-bucket]="b.key">
+                <div class="bucket-head">
+                  <strong>{{ b.label }}</strong>
+                  <span class="bucket-percent">{{ b.percent }}%</span>
+                </div>
+                <p class="bucket-hint">{{ b.hint }}</p>
+                <ul class="bucket-cats">
+                  @for (c of b.categories; track c.id) {
+                    <li><span aria-hidden="true">{{ c.icon }}</span>{{ c.name }}@if (c.monthlyBudget) { <b>{{ c.monthlyBudget | currency:'INR':'symbol':'1.0-0' }}</b> }</li>
+                  }
+                </ul>
+              </article>
+            }
+          </div>
+          @if (incomeCategories().length) {
+            <p class="income-line"><strong>Income:</strong>
+              @for (c of incomeCategories(); track c.id; let last = $last) { {{ c.icon }} {{ c.name }}{{ last ? '' : ' · ' }} }
+            </p>
+          }
+        }
+      </section>
+
+      <section id="activity" class="panel activity-panel">
+        <div class="panel-heading activity-heading">
+          <div><h2>Activity</h2><p>{{ monthName() }}</p></div>
+        </div>
+        <div class="empty-state">
+          <span class="empty-icon"><i-lucide [img]="icons.Receipt"></i-lucide></span>
+          <strong>No entries for {{ monthName() }} yet</strong>
+          <p>Income, spending and savings you log will show here, grouped by day.</p>
+        </div>
+      </section>
+      <footer class="footer"><span>Pay yourself first <span>♥</span></span><span>MONTHLEDGER</span></footer>
+    </div>
+  </main>
+</div>
+
+@if (settingsOpen()) {
+  <div class="modal-backdrop" (click)="closeSettings()">
+    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="closeSettings()">
+      <div class="modal-head">
+        <span class="modal-icon modal-income"><i-lucide [img]="icons.Settings2"></i-lucide></span>
+        <div><h2 id="settings-title">Settings</h2><p class="modal-subtitle">Budget settings sync to all your devices</p></div>
+        <button class="icon-button modal-close" aria-label="Close" (click)="closeSettings()"><i-lucide [img]="icons.X"></i-lucide></button>
+      </div>
+
+      <label class="field-label" for="server-key">Server key <span>(once per device)</span></label>
+      <div class="key-row">
+        <input class="form-input" id="server-key" [type]="showKey() ? 'text' : 'password'" autocomplete="off" autocapitalize="off" spellcheck="false"
+               placeholder="Paste your server key" [ngModel]="apiKeyDraft()" (ngModelChange)="onKeyInput($event)" (keydown.enter)="connect()">
+        <button type="button" class="secondary-button" (click)="showKey.set(!showKey())" [attr.aria-pressed]="showKey()">{{ showKey() ? 'Hide' : 'Show' }}</button>
+        <button type="button" class="primary-button" (click)="connect()" [disabled]="!apiKeyDraft().trim()">Connect</button>
+      </div>
+      @if (needsKey()) { <p class="form-error" role="alert">{{ apiKeyDraft() ? 'That key was not accepted. Check it and tap Connect.' : 'Enter your server key to load your budget.' }}</p> }
+
+      <fieldset class="settings-group" [disabled]="needsKey()">
+        <label class="field-label" for="name">Your name</label>
+        <input class="form-input" id="name" type="text" maxlength="30" placeholder="Name" [ngModel]="draft().name" (ngModelChange)="patchDraft({ name: $event })">
+
+        <span class="field-label">Split your income <span>(must add up to 100%)</span></span>
+        <div class="split-row">
+          @for (b of buckets; track b.key) {
+            <label class="split-cell">
+              <small>{{ b.label }}</small>
+              <span class="amount-input"><input type="number" inputmode="numeric" min="0" max="100" step="5" [attr.aria-label]="b.label + ' percent'"
+                [ngModel]="draft()[b.percentKey]" (ngModelChange)="setPercent(b.percentKey, $event)"><span>%</span></span>
+            </label>
+          }
+        </div>
+        <p class="split-total" [class.split-bad]="draftTotal() !== 100">Total {{ draftTotal() }}%</p>
+
+        <label class="field-label" for="start-day">Budget month starts on <span>(your salary day)</span></label>
+        <div class="amount-input day-input"><span>Day</span><input id="start-day" type="number" inputmode="numeric" min="1" max="28"
+          [ngModel]="draft().monthStartDay" (ngModelChange)="patchDraft({ monthStartDay: $event === null ? 1 : +$event })"></div>
+        <p class="hint">@if (draft().monthStartDay === 1) { Months follow the calendar: 1st to the last day. } @else { A month runs from the {{ ordinal(draft().monthStartDay) }} to the {{ ordinal(draft().monthStartDay - 1) }} of the next month. }</p>
+      </fieldset>
+
+      <span class="field-label">Theme <span>(this device)</span></span>
+      <div class="segmented segmented-full">
+        <button [class.selected]="theme() === 'system'" (click)="setTheme('system')">Auto</button>
+        <button [class.selected]="theme() === 'light'" (click)="setTheme('light')"><i-lucide [img]="icons.Sun"></i-lucide> Light</button>
+        <button [class.selected]="theme() === 'dark'" (click)="setTheme('dark')"><i-lucide [img]="icons.Moon"></i-lucide> Night</button>
+      </div>
+
+      @if (settingsError()) { <p class="form-error" role="alert">{{ settingsError() }}</p> }
+      <div class="modal-actions">
+        <button class="primary-button" (click)="saveSettings()" [disabled]="savingSettings()">{{ savingSettings() ? 'Saving…' : 'Done' }} <i-lucide [img]="icons.Check"></i-lucide></button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (toast(); as t) {
+  <div class="toast" role="status"><i-lucide [img]="icons.Check"></i-lucide><span>{{ t.message }}</span></div>
+}
