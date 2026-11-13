@@ -2,6 +2,7 @@ import { CurrencyPipe, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 import {
   LucideAngularModule, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank,
   Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag
@@ -15,6 +16,7 @@ import { EntrySheetComponent } from './entry-sheet.component';
 import { QuickExpenseComponent } from './quick-expense.component';
 import { CategoriesSheetComponent } from './categories-sheet.component';
 import { GoalSheetComponent } from './goal-sheet.component';
+import { Snapshot, clearSnapshot, readSnapshot, writeSnapshot } from './cache';
 
 type Theme = 'system' | 'light' | 'dark';
 interface Toast { message: string; actionLabel?: string; action?: () => void; }
@@ -53,6 +55,10 @@ export class AppComponent {
   readonly loading = signal(true);
   readonly error = signal('');
   readonly needsKey = signal(false);
+  /** Set while the page shows this device's saved copy and the server hasn't answered yet. */
+  readonly savedCopyFrom = signal<Date | null>(null);
+  /** Entries from the saved copy, per month key, so browsing months works while the server wakes. */
+  private cachedMonths: Snapshot['months'] = {};
 
   // ── Per device ────────────────────────────────────────────
   readonly theme = signal<Theme>(this.loadTheme());
@@ -216,6 +222,7 @@ export class AppComponent {
 
   constructor() {
     this.service.wake();
+    this.showSavedCopy();
     this.refresh();
     effect(() => {
       document.documentElement.dataset['theme'] = this.isDark() ? 'dark' : 'light';
@@ -223,15 +230,39 @@ export class AppComponent {
     });
   }
 
+  /** Paints the last data this device saw, so the page is usable while a sleeping server wakes. */
+  private showSavedCopy(): void {
+    const snap = readSnapshot();
+    if (!snap) return;
+    this.settings.set(snap.settings);
+    this.categories.set(snap.categories);
+    this.goals.set(snap.goals);
+    this.trendEntries.set(snap.trendEntries);
+    this.cachedMonths = snap.months;
+    const month = this.month();
+    this.entriesFor = month.key;
+    this.entries.set(snap.months[month.key] ?? []);
+    this.previousEntries.set(snap.months[shiftMonth(month, -1, snap.settings.monthStartDay).key] ?? []);
+    this.loading.set(false);
+    this.savedCopyFrom.set(new Date(snap.savedAt));
+  }
+  /** Time of the saved copy, e.g. "10:42 am" today or "12 Nov, 9:15 pm" for older ones. */
+  readonly savedCopyLabel = computed(() => {
+    const at = this.savedCopyFrom();
+    if (!at) return '';
+    const time = at.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+    return isoDate(at) === this.todayIso ? time : `${at.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${time}`;
+  });
+
   refresh(): void {
-    this.loading.set(true);
-    this.service.settings().subscribe({
-      next: (settings) => {
+    if (!this.categories().length) this.loading.set(true);
+    // Settings and categories in parallel; entries need the month start day from settings.
+    forkJoin({ settings: this.service.settings(), categories: this.service.categories() }).subscribe({
+      next: ({ settings, categories }) => {
         this.settings.set(settings);
-        this.service.categories().subscribe({
-          next: (categories) => { this.categories.set(categories); this.loaded(); this.loadEntries(); this.loadGoals(); this.loadTrend(); },
-          error: (err) => this.failed(err),
-        });
+        this.categories.set(categories);
+        writeSnapshot({ settings, categories });
+        this.loaded(); this.loadEntries(); this.loadGoals(); this.loadTrend();
       },
       error: (err) => this.failed(err),
     });
@@ -240,42 +271,63 @@ export class AppComponent {
   private failed(err: unknown): void {
     this.loading.set(false);
     if (err instanceof HttpErrorResponse && err.status === 401) {
+      // The key was changed or removed: don't keep showing data this device may no longer be allowed to see.
+      clearSnapshot();
+      this.cachedMonths = {};
+      this.savedCopyFrom.set(null);
+      this.entries.set([]); this.previousEntries.set([]); this.goals.set([]); this.trendEntries.set([]);
       this.error.set('');
       this.needsKey.set(true);
       this.openSettings();
       setTimeout(() => document.getElementById('server-key')?.focus());
       return;
     }
-    this.error.set('Could not reach the server. Check your signal and tap Retry.');
+    this.error.set(this.savedCopyFrom()
+      ? `Can't reach the server — showing your saved copy from ${this.savedCopyLabel()}. Check your signal and tap Retry.`
+      : 'Could not reach the server. Check your signal and tap Retry.');
   }
 
   loadEntries(): void {
     const month = this.month();
     const key = month.key;
     const last = new Date(month.end.getFullYear(), month.end.getMonth(), month.end.getDate() - 1);
-    if (this.entriesFor !== key) { this.entries.set([]); this.previousEntries.set([]); this.dayFilter.set(null); }
+    if (this.entriesFor !== key) {
+      const prevKey = shiftMonth(month, -1, this.settings().monthStartDay).key;
+      this.entries.set(this.cachedMonths[key] ?? []); this.previousEntries.set(this.cachedMonths[prevKey] ?? []); this.dayFilter.set(null);
+    }
     this.entriesFor = key;
     this.entriesLoading.set(true);
     this.service.entries(isoDate(month.start), isoDate(last)).subscribe({
-      next: (entries) => { if (this.entriesFor !== key) return; this.entries.set(entries); this.entriesLoading.set(false); },
+      next: (entries) => {
+        this.remember(key, entries);
+        if (this.entriesFor !== key) return;
+        this.entries.set(entries); this.entriesLoading.set(false);
+        this.savedCopyFrom.set(null);   // the server answered: everything on screen is live now
+      },
       error: (err) => { if (this.entriesFor !== key) return; this.entriesLoading.set(false); this.failed(err); },
     });
     const prev = shiftMonth(month, -1, this.settings().monthStartDay);
     this.service.entries(isoDate(prev.start), isoDate(new Date(prev.end.getFullYear(), prev.end.getMonth(), prev.end.getDate() - 1))).subscribe({
-      next: (entries) => { if (this.entriesFor === key) this.previousEntries.set(entries); },
+      next: (entries) => { this.remember(prev.key, entries); if (this.entriesFor === key) this.previousEntries.set(entries); },
       error: () => { /* the comparison card just stays hidden */ },
     });
   }
 
   loadGoals(): void {
-    this.service.goals().subscribe({ next: (goals) => this.goals.set(goals), error: () => { /* goals panel keeps the last list */ } });
+    this.service.goals().subscribe({ next: (goals) => { this.goals.set(goals); writeSnapshot({ goals }); }, error: () => { /* goals panel keeps the last list */ } });
   }
   loadTrend(): void {
     const day = this.settings().monthStartDay;
     const current = budgetMonthFor(this.today, day);
     const first = shiftMonth(current, -(TREND_MONTHS - 1), day);
     const last = new Date(current.end.getFullYear(), current.end.getMonth(), current.end.getDate() - 1);
-    this.service.entries(isoDate(first.start), isoDate(last)).subscribe({ next: (e) => this.trendEntries.set(e), error: () => {} });
+    this.service.entries(isoDate(first.start), isoDate(last)).subscribe({ next: (e) => { this.trendEntries.set(e); writeSnapshot({ trendEntries: e }); }, error: () => {} });
+  }
+  /** Keeps a month's fresh entries for the next instant start. */
+  private remember(key: string, entries: Entry[]): void {
+    const { [key]: _old, ...rest } = this.cachedMonths;
+    this.cachedMonths = { ...rest, [key]: entries };
+    writeSnapshot({ months: { [key]: entries } });
   }
   /** After anything that changes money: this month, goals and the trend. */
   private reloadMoney(): void { this.loadEntries(); this.loadGoals(); this.loadTrend(); }
@@ -315,6 +367,7 @@ export class AppComponent {
   }
   onCategoryChanged(saved: Category): void {
     this.categories.update((list) => list.some((c) => c.id === saved.id) ? list.map((c) => c.id === saved.id ? saved : c) : [...list, saved]);
+    writeSnapshot({ categories: this.categories() });
   }
   pickDay(iso: string): void {
     this.dayFilter.set(this.dayFilter() === iso ? null : iso);
@@ -402,7 +455,14 @@ export class AppComponent {
         this.savingSettings.set(false);
         const startChanged = saved.monthStartDay !== this.settings().monthStartDay;
         this.settings.set(saved);
-        if (startChanged) { this.monthOffset.set(0); this.loadEntries(); this.loadTrend(); }
+        if (startChanged) {
+          // Saved months were cut at the old start day; drop them rather than show wrong ranges.
+          clearSnapshot(); this.cachedMonths = {};
+          writeSnapshot({ settings: saved, categories: this.categories(), goals: this.goals() });
+          this.monthOffset.set(0); this.loadEntries(); this.loadTrend();
+        } else {
+          writeSnapshot({ settings: saved });
+        }
         this.closeSettings();
         this.showToast({ message: 'Settings saved on all your devices' });
       },
