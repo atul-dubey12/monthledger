@@ -58,3 +58,13 @@ export function monthRange(month: BudgetMonth): string {
 export function isoDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
+
+/** Budget months from `from` to `to`, counting both (Nov → Dec = 2). Zero or less when `to` is earlier. */
+export function monthsBetween(from: BudgetMonth, to: BudgetMonth): number {
+  return (to.start.getFullYear() * 12 + to.start.getMonth()) - (from.start.getFullYear() * 12 + from.start.getMonth()) + 1;
+}
+
+/** "Nov" — short name for chart labels. */
+export function shortMonth(month: BudgetMonth): string {
+  return month.start.toLocaleDateString('en-IN', { month: 'short' });
+}

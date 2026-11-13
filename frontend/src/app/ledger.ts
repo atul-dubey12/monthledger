@@ -1,4 +1,4 @@
-import { Bucket, Category, Entry } from './models';
+import { Bucket, Category, Entry, Goal } from './models';
 
 export interface MonthTotals {
   income: number;
@@ -112,4 +112,29 @@ export function biggestRise(now: Map<number, number>, before: Map<number, number
     if (rise > 0 && (!best || rise > best.rise)) best = { id, rise: money(rise) };
   }
   return best;
+}
+
+export interface TrendMonth { key: string; label: string; income: number; saved: number; rate: number | null; }
+
+/** Income, net saved and savings rate per budget month, oldest first. `months` are [key, label, start, end-exclusive]. */
+export function savingsTrend(entries: Entry[], months: { key: string; label: string; start: Date; end: Date }[], categories: Map<number, Category>): TrendMonth[] {
+  return months.map((m) => {
+    const from = isoOf(m.start), to = isoOf(m.end);
+    const t = monthTotals(entries.filter((e) => e.date >= from && e.date < to), categories);
+    return { key: m.key, label: m.label, income: t.income, saved: t.saved, rate: t.savingsRate };
+  });
+}
+
+/** How much a goal still needs per month to hit its date, from this budget month on. */
+export function goalPlan(goal: Goal, monthsLeft: number | null): { left: number; percent: number; perMonth: number | null; state: 'reached' | 'onTrack' | 'noDate' | 'late' } {
+  const left = money(Math.max(0, goal.targetAmount - goal.saved));
+  const percent = Math.max(0, Math.min(100, Math.round((goal.saved / goal.targetAmount) * 100)));
+  if (left === 0) return { left, percent: 100, perMonth: null, state: 'reached' };
+  if (monthsLeft === null) return { left, percent, perMonth: null, state: 'noDate' };
+  if (monthsLeft <= 0) return { left, percent, perMonth: null, state: 'late' };
+  return { left, percent, perMonth: Math.ceil(left / monthsLeft), state: 'onTrack' };
+}
+
+function isoOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

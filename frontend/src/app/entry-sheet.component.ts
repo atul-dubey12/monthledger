@@ -2,13 +2,14 @@ import { Component, EventEmitter, HostListener, Input, OnInit, Output, computed,
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, ArrowDownLeft, ArrowUpRight, Check, PiggyBank, Plus, X } from 'lucide-angular';
 import { BudgetService } from './budget.service';
-import { Category, Entry, EntryDraft, EntryKind, KIND_BUCKETS, PAYMENT_MODES, PaymentMode } from './models';
+import { Category, Entry, EntryDraft, EntryKind, Goal, KIND_BUCKETS, PAYMENT_MODES, PaymentMode } from './models';
 import { isoDate } from './month';
 
 /** The three tabs at the top of the sheet. A withdrawal is the Saving tab with "Taking money out" switched on. */
 type Tab = 'EXPENSE' | 'INCOME' | 'SAVING';
 const LAST_CATEGORY_KEY = 'monthledger.lastCategory';
 const LAST_MODE_KEY = 'monthledger.lastPaymentMode';
+const LAST_GOAL_KEY = 'monthledger.lastGoal';
 
 @Component({
   selector: 'app-entry-sheet',
@@ -48,6 +49,16 @@ const LAST_MODE_KEY = 'monthledger.lastPaymentMode';
                     [attr.data-bucket]="c.bucket" (click)="categoryId.set(c.id)">
               <span class="cat-emoji">{{ c.icon }}</span>{{ c.name }}
             </button>
+          }
+        </div>
+      }
+
+      @if (tab() === 'SAVING' && usableGoals().length) {
+        <span class="field-label">Towards goal <span>(optional)</span></span>
+        <div class="chip-row chip-row-tight" role="radiogroup" aria-label="Goal">
+          <button type="button" class="chip" role="radio" [attr.aria-checked]="goalId() === null" [class.selected]="goalId() === null" (click)="goalId.set(null)">No goal</button>
+          @for (g of usableGoals(); track g.id) {
+            <button type="button" class="chip chip-goal" role="radio" [attr.aria-checked]="goalId() === g.id" [class.selected]="goalId() === g.id" (click)="goalId.set(g.id)">{{ g.icon }} {{ g.name }}</button>
           }
         </div>
       }
@@ -96,6 +107,9 @@ export class EntrySheetComponent implements OnInit {
   @Input({ required: true }) categories: Category[] = [];
   /** Date to suggest for a new entry: today, or a day inside the month being viewed. */
   @Input() defaultDate = isoDate(new Date());
+  @Input() goals: Goal[] = [];
+  /** Pre-picks a goal, e.g. from a goal's "Add money" button. */
+  @Input() goalForNew: number | null = null;
   @Output() saved = new EventEmitter<{ entry: Entry; edited: boolean; addAnother: boolean }>();
   @Output() closed = new EventEmitter<void>();
 
@@ -107,6 +121,7 @@ export class EntrySheetComponent implements OnInit {
   readonly withdrawal = signal(false);
   readonly categoryId = signal<number | null>(null);
   readonly paymentMode = signal<PaymentMode>('UPI');
+  readonly goalId = signal<number | null>(null);
   readonly saving = signal(false);
   readonly error = signal('');
   readonly today = isoDate(new Date());
@@ -115,6 +130,8 @@ export class EntrySheetComponent implements OnInit {
   date = this.today;
   note = '';
 
+  /** Visible goals, plus a hidden one if the entry being edited already uses it. */
+  usableGoals(): Goal[] { return this.goals.filter((g) => !g.archived || g.id === this.entry?.goalId); }
   readonly kindNow = computed<EntryKind>(() => this.tab() === 'SAVING' ? (this.withdrawal() ? 'SAVING_WITHDRAWAL' : 'SAVING') : this.tab());
   readonly tabLabel = computed(() => ({ EXPENSE: 'expense', INCOME: 'income', SAVING: this.withdrawal() ? 'withdrawal' : 'saving' })[this.tab()]);
   readonly subtitle = computed(() => ({
@@ -141,12 +158,16 @@ export class EntrySheetComponent implements OnInit {
       this.note = e.note ?? '';
       this.categoryId.set(e.categoryId);
       this.paymentMode.set(e.paymentMode ?? 'UPI');
+      this.goalId.set(e.goalId ?? null);
       return;
     }
     this.date = this.defaultDate;
     this.tab.set(this.kind === 'SAVING_WITHDRAWAL' ? 'SAVING' : this.kind);
     this.withdrawal.set(this.kind === 'SAVING_WITHDRAWAL');
     this.pickDefaults();
+    const remembered = Number(this.readRaw(LAST_GOAL_KEY));
+    const preferred = this.goalForNew ?? remembered;
+    this.goalId.set(this.usableGoals().some((g) => g.id === preferred && !g.archived) ? preferred : null);
   }
 
   @HostListener('document:keydown.escape') onEscape(): void { this.closed.emit(); }
@@ -180,6 +201,7 @@ export class EntrySheetComponent implements OnInit {
     if (!this.date) { this.error.set('Pick a date.'); return; }
     const draft: EntryDraft = {
       date: this.date, kind: this.kindNow(), amount: this.amount, categoryId, paymentMode: this.paymentMode(), note: this.note.trim() || null,
+      goalId: this.tab() === 'SAVING' ? this.goalId() : null,
     };
     this.saving.set(true);
     this.error.set('');
@@ -189,6 +211,7 @@ export class EntrySheetComponent implements OnInit {
         this.saving.set(false);
         this.remember(LAST_CATEGORY_KEY, categoryId);
         this.remember(LAST_MODE_KEY, this.paymentMode());
+        if (this.tab() === 'SAVING') { try { localStorage.setItem(LAST_GOAL_KEY, String(this.goalId() ?? '')); } catch { /* storage blocked */ } }
         this.saved.emit({ entry, edited: !!this.entry, addAnother });
         if (addAnother) { this.amount = null; this.note = ''; document.getElementById('amount')?.focus(); }
       },
@@ -196,6 +219,7 @@ export class EntrySheetComponent implements OnInit {
     });
   }
 
+  private readRaw(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
   private remembered<T>(key: string): Partial<Record<Tab, T>> {
     try { return JSON.parse(localStorage.getItem(key) ?? '{}'); } catch { return {}; }
   }

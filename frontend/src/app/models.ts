@@ -39,6 +39,8 @@ export interface Entry {
   categoryId: number;
   paymentMode: PaymentMode | null;
   note: string | null;
+  /** Savings and withdrawals can count towards one goal. */
+  goalId: number | null;
 }
 export type EntryDraft = Omit<Entry, 'id'>;
 
@@ -53,3 +55,18 @@ export const KIND_BUCKETS: Record<EntryKind, Bucket[]> = {
 export const PAYMENT_MODES: { key: PaymentMode; label: string }[] = [
   { key: 'UPI', label: 'UPI' }, { key: 'CARD', label: 'Card' }, { key: 'CASH', label: 'Cash' }, { key: 'BANK', label: 'Bank' },
 ];
+
+export interface Goal {
+  id: number;
+  name: string;
+  icon: string;
+  targetAmount: number;
+  /** Already saved before tracking started. */
+  startingAmount: number;
+  /** yyyy-MM-dd, optional */
+  targetDate: string | null;
+  archived: boolean;
+  /** startingAmount + linked savings − linked withdrawals (computed by the server). */
+  saved: number;
+}
+export type GoalDraft = Pick<Goal, 'name' | 'icon' | 'targetAmount' | 'startingAmount' | 'targetDate'> & { archived?: boolean };

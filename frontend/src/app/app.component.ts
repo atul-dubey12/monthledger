@@ -4,33 +4,35 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank,
-  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3
+  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag
 } from 'lucide-angular';
 import { NetworkStatus, readApiKey, saveApiKey } from './api.interceptor';
 import { BudgetService } from './budget.service';
-import { BUCKETS, Bucket, BudgetSettings, Category, Entry, EntryKind, PAYMENT_MODES } from './models';
-import { budgetMonthFor, contains, daysLeft, isoDate, monthName, monthRange, shiftMonth, totalDays } from './month';
-import { biggestRise, budgetStatuses, byDay, categoryAmounts, change, dailySpending, entryBucket, monthTotals, parseIso } from './ledger';
+import { BUCKETS, Bucket, BudgetSettings, Category, Entry, EntryKind, Goal, GoalDraft, PAYMENT_MODES } from './models';
+import { budgetMonthFor, contains, daysLeft, isoDate, monthName, monthRange, monthsBetween, shiftMonth, shortMonth, totalDays } from './month';
+import { biggestRise, budgetStatuses, byDay, categoryAmounts, change, dailySpending, entryBucket, goalPlan, monthTotals, parseIso, savingsTrend } from './ledger';
 import { EntrySheetComponent } from './entry-sheet.component';
 import { QuickExpenseComponent } from './quick-expense.component';
 import { CategoriesSheetComponent } from './categories-sheet.component';
+import { GoalSheetComponent } from './goal-sheet.component';
 
 type Theme = 'system' | 'light' | 'dark';
 interface Toast { message: string; actionLabel?: string; action?: () => void; }
 type ActivityFilter = 'ALL' | 'INCOME' | 'NEED' | 'WANT' | 'SAVING';
 
 const THEME_KEY = 'monthledger.theme';
+const TREND_MONTHS = 6;
 const DEFAULT_SETTINGS: BudgetSettings = { name: '', needsPercent: 50, wantsPercent: 30, savingsPercent: 20, monthStartDay: 5 };
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent, QuickExpenseComponent, CategoriesSheetComponent],
+  imports: [FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent, QuickExpenseComponent, CategoriesSheetComponent, GoalSheetComponent],
   templateUrl: './app.component.html'
 })
 export class AppComponent {
   readonly icons = {
     ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank, Settings2, ShieldCheck,
-    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3
+    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag
   };
   readonly buckets = BUCKETS;
   private readonly service = inject(BudgetService);
@@ -42,6 +44,9 @@ export class AppComponent {
   readonly entries = signal<Entry[]>([]);
   /** The month before the one on screen, for "compared with last month". */
   readonly previousEntries = signal<Entry[]>([]);
+  readonly goals = signal<Goal[]>([]);
+  /** The last TREND_MONTHS budget months of entries, for the savings-rate trend. */
+  readonly trendEntries = signal<Entry[]>([]);
   /** Which budget month `entries` holds, so a slow response for another month is ignored. */
   private entriesFor = '';
   readonly entriesLoading = signal(false);
@@ -112,6 +117,31 @@ export class AppComponent {
     };
   });
 
+  // ── Goals & savings trend ─────────────────────────────────
+  readonly activeGoals = computed(() => this.goals().filter((g) => !g.archived));
+  readonly hiddenGoals = computed(() => this.goals().filter((g) => g.archived));
+  readonly goalCards = computed(() => {
+    const now = budgetMonthFor(this.today, this.settings().monthStartDay);
+    return this.activeGoals().map((g) => {
+      const months = g.targetDate ? monthsBetween(now, budgetMonthFor(parseIso(g.targetDate), this.settings().monthStartDay)) : null;
+      return { goal: g, months, ...goalPlan(g, months) };
+    });
+  });
+  /** Emergency fund suggestion: about 3 months of this month's spending, rounded up to ₹5,000. */
+  readonly emergencySuggestion = computed<Partial<GoalDraft>>(() => {
+    const spent = this.totals().spent;
+    return { name: 'Emergency fund', icon: '🛟', targetAmount: spent > 0 ? Math.ceil((spent * 3) / 5000) * 5000 : 50000 };
+  });
+  readonly trend = computed(() => {
+    const day = this.settings().monthStartDay;
+    const current = budgetMonthFor(this.today, day);
+    const months = Array.from({ length: TREND_MONTHS }, (_, i) => shiftMonth(current, i - TREND_MONTHS + 1, day))
+      .map((m) => ({ key: m.key, label: shortMonth(m), start: m.start, end: m.end }));
+    return savingsTrend(this.trendEntries(), months, this.categoryById());
+  });
+  readonly trendHasData = computed(() => this.trend().some((m) => m.income > 0 || m.saved !== 0));
+  readonly trendMax = computed(() => Math.max(this.settings().savingsPercent, ...this.trend().map((m) => m.rate ?? 0), 1));
+
   // ── Plan ──────────────────────────────────────────────────
   readonly activeCategories = computed(() => this.categories().filter((c) => !c.archived));
   readonly incomeCategories = computed(() => this.activeCategories().filter((c) => c.bucket === 'INCOME'));
@@ -157,6 +187,10 @@ export class AppComponent {
   /** undefined = closed. */
   readonly sheet = signal<{ kind: EntryKind; entry: Entry | null } | undefined>(undefined);
   readonly quickOpen = signal(false);
+  /** undefined = closed; goal null = new goal (optionally from a suggestion). */
+  readonly goalSheet = signal<{ goal: Goal | null; suggestion: Partial<GoalDraft> | null } | undefined>(undefined);
+  /** Goal to pre-pick when the entry sheet opens from a goal's "Add money". */
+  readonly sheetGoal = signal<number | null>(null);
   readonly categoriesOpen = signal(false);
   /** This month and last, so Quick expense can rank your usual categories. */
   readonly recentEntries = computed(() => [...this.entries(), ...this.previousEntries()]);
@@ -195,7 +229,7 @@ export class AppComponent {
       next: (settings) => {
         this.settings.set(settings);
         this.service.categories().subscribe({
-          next: (categories) => { this.categories.set(categories); this.loaded(); this.loadEntries(); },
+          next: (categories) => { this.categories.set(categories); this.loaded(); this.loadEntries(); this.loadGoals(); this.loadTrend(); },
           error: (err) => this.failed(err),
         });
       },
@@ -233,10 +267,41 @@ export class AppComponent {
     });
   }
 
+  loadGoals(): void {
+    this.service.goals().subscribe({ next: (goals) => this.goals.set(goals), error: () => { /* goals panel keeps the last list */ } });
+  }
+  loadTrend(): void {
+    const day = this.settings().monthStartDay;
+    const current = budgetMonthFor(this.today, day);
+    const first = shiftMonth(current, -(TREND_MONTHS - 1), day);
+    const last = new Date(current.end.getFullYear(), current.end.getMonth(), current.end.getDate() - 1);
+    this.service.entries(isoDate(first.start), isoDate(last)).subscribe({ next: (e) => this.trendEntries.set(e), error: () => {} });
+  }
+  /** After anything that changes money: this month, goals and the trend. */
+  private reloadMoney(): void { this.loadEntries(); this.loadGoals(); this.loadTrend(); }
+
+  openGoal(goal: Goal | null, suggestion: Partial<GoalDraft> | null = null): void { this.goalSheet.set({ goal, suggestion }); }
+  addToGoal(goal: Goal): void { this.sheetGoal.set(goal.id); this.sheet.set({ kind: 'SAVING', entry: null }); }
+  onGoalSaved(event: { goal: Goal; created: boolean; hidden: boolean }): void {
+    this.goalSheet.set(undefined);
+    this.showToast({ message: event.hidden ? `${event.goal.name} hidden` : event.created ? `Goal created · ${event.goal.icon} ${event.goal.name}` : 'Goal updated' });
+    this.loadGoals();
+  }
+  showGoalAgain(goal: Goal): void {
+    const { name, icon, targetAmount, startingAmount, targetDate } = goal;
+    this.service.updateGoal(goal.id, { name, icon, targetAmount, startingAmount, targetDate, archived: false }).subscribe({
+      next: () => this.loadGoals(),
+      error: (err) => this.showToast({ message: this.service.errorMessage(err, 'Could not show this goal.') }),
+    });
+  }
+  goalDateLabel(iso: string): string { return parseIso(iso).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }); }
+  /** Bar height in % of the plot; the tallest bar uses 80% so its label still fits above it. */
+  trendHeight(rate: number | null): number { return rate && rate > 0 ? Math.max(2, (rate / this.trendMax()) * 80) : 0; }
+
   step(by: number): void { if (by > 0 && this.isCurrentMonth()) return; this.monthOffset.update((n) => n + by); this.loadEntries(); }
   goToCurrent(): void { this.monthOffset.set(0); this.loadEntries(); }
 
-  openSheet(kind: EntryKind, entry: Entry | null = null): void { this.sheet.set({ kind, entry }); }
+  openSheet(kind: EntryKind, entry: Entry | null = null): void { this.sheetGoal.set(null); this.sheet.set({ kind, entry }); }
   onQuickSaved(entry: Entry): void {
     this.quickOpen.set(false);
     // Quick expense always logs today; jump back to this month if an older one was on screen.
@@ -246,7 +311,7 @@ export class AppComponent {
     const limit = c?.monthlyBudget ?? 0;
     const note = limit && after > limit ? ` · ₹${Math.round(after - limit).toLocaleString('en-IN')} over limit` : limit && after >= limit * 0.8 ? ` · ${Math.round((after / limit) * 100)}% of limit` : '';
     this.showToast({ message: `Spent ${this.rupees(entry.amount)} · ${c?.name ?? ''}${note}`, actionLabel: 'Undo', action: () => this.undoCreate(entry) });
-    this.loadEntries();
+    this.reloadMoney();
   }
   onCategoryChanged(saved: Category): void {
     this.categories.update((list) => list.some((c) => c.id === saved.id) ? list.map((c) => c.id === saved.id ? saved : c) : [...list, saved]);
@@ -271,25 +336,25 @@ export class AppComponent {
     const otherMonth = !contains(this.month(), parseIso(e.date));
     this.showToast(event.edited ? { message: otherMonth ? 'Entry moved to another month' : message }
       : { message: otherMonth ? `${message} — saved in another month` : message, actionLabel: 'Undo', action: () => this.undoCreate(e) });
-    this.loadEntries();
+    this.reloadMoney();
   }
   private undoCreate(entry: Entry): void {
     this.service.deleteEntry(entry.id).subscribe({
-      next: () => { this.showToast({ message: 'Removed' }); this.loadEntries(); },
+      next: () => { this.showToast({ message: 'Removed' }); this.reloadMoney(); },
       error: (err) => this.showToast({ message: this.service.errorMessage(err, 'Could not undo.') }),
     });
   }
   removeEntry(entry: Entry): void {
     this.entries.update((list) => list.filter((e) => e.id !== entry.id));
     this.service.deleteEntry(entry.id).subscribe({
-      next: () => this.showToast({ message: 'Entry deleted', actionLabel: 'Undo', action: () => this.restore(entry) }),
+      next: () => { this.showToast({ message: 'Entry deleted', actionLabel: 'Undo', action: () => this.restore(entry) }); this.loadGoals(); this.loadTrend(); },
       error: (err) => { this.showToast({ message: this.service.errorMessage(err, 'Could not delete this entry.') }); this.loadEntries(); },
     });
   }
   private restore(entry: Entry): void {
     const { id, ...draft } = entry;
     this.service.createEntry(draft).subscribe({
-      next: () => { this.showToast({ message: 'Entry restored' }); this.loadEntries(); },
+      next: () => { this.showToast({ message: 'Entry restored' }); this.reloadMoney(); },
       error: (err) => this.showToast({ message: this.service.errorMessage(err, 'Could not restore this entry.') }),
     });
   }
@@ -337,7 +402,7 @@ export class AppComponent {
         this.savingSettings.set(false);
         const startChanged = saved.monthStartDay !== this.settings().monthStartDay;
         this.settings.set(saved);
-        if (startChanged) { this.monthOffset.set(0); this.loadEntries(); }
+        if (startChanged) { this.monthOffset.set(0); this.loadEntries(); this.loadTrend(); }
         this.closeSettings();
         this.showToast({ message: 'Settings saved on all your devices' });
       },

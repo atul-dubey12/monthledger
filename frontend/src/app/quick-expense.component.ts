@@ -142,7 +142,7 @@ export class QuickExpenseComponent implements OnInit {
     if (!categoryId) { this.error.set('Pick a category.'); return; }
     this.saving.set(true);
     this.error.set('');
-    this.service.createEntry({ date: isoDate(new Date()), kind: 'EXPENSE', amount, categoryId, paymentMode: this.paymentMode(), note: null }).subscribe({
+    this.service.createEntry({ date: isoDate(new Date()), kind: 'EXPENSE', amount, categoryId, paymentMode: this.paymentMode(), note: null, goalId: null }).subscribe({
       next: (entry) => {
         this.saving.set(false);
         this.write(LAST_CATEGORY_KEY, String(categoryId));

@@ -2,6 +2,8 @@ package com.monthledger.entry;
 
 import com.monthledger.category.Category;
 import com.monthledger.category.CategoryRepository;
+import com.monthledger.goal.Goal;
+import com.monthledger.goal.GoalRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -18,10 +20,12 @@ public class EntryController {
     private static final int MAX_RANGE_DAYS = 400;
     private final EntryRepository entries;
     private final CategoryRepository categories;
+    private final GoalRepository goals;
 
-    public EntryController(EntryRepository entries, CategoryRepository categories) {
+    public EntryController(EntryRepository entries, CategoryRepository categories, GoalRepository goals) {
         this.entries = entries;
         this.categories = categories;
+        this.goals = goals;
     }
 
     /** Newest first. Both dates are inclusive. */
@@ -64,6 +68,7 @@ public class EntryController {
         entry.setPaymentMode(request.paymentMode());
         String note = request.note() == null ? null : request.note().trim();
         entry.setNote(note == null || note.isEmpty() ? null : note);
+        entry.setGoalId(request.goalId());
     }
 
     private void validate(EntryRequest request, Entry existing) {
@@ -82,6 +87,12 @@ public class EntryController {
         boolean keepsOldCategory = existing != null && existing.getCategoryId().equals(category.getId());
         if (category.isArchived() && !keepsOldCategory) throw bad("That category is archived. Pick another one.");
         if (!request.kind().allows(category.getBucket())) throw bad(category.getName() + " can't be used for this kind of entry.");
+        if (request.goalId() != null) {
+            if (request.kind() != EntryKind.SAVING && request.kind() != EntryKind.SAVING_WITHDRAWAL) throw bad("Only savings can count towards a goal.");
+            Goal goal = goals.findById(request.goalId()).orElseThrow(() -> bad("That goal no longer exists."));
+            boolean keepsOldGoal = existing != null && request.goalId().equals(existing.getGoalId());
+            if (goal.isArchived() && !keepsOldGoal) throw bad("That goal is hidden. Pick another one.");
+        }
     }
 
     private static ResponseStatusException bad(String message) { return new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }

@@ -7,6 +7,7 @@
     <nav aria-label="Sections">
       <button class="nav-item" (click)="scrollTo('top')"><i-lucide [img]="icons.LayoutDashboard"></i-lucide><span>Overview</span></button>
       <button class="nav-item" (click)="scrollTo('plan')"><i-lucide [img]="icons.Target"></i-lucide><span>Budget plan</span></button>
+      <button class="nav-item" (click)="scrollTo('goals')"><i-lucide [img]="icons.Flag"></i-lucide><span>Savings goals</span></button>
       <button class="nav-item" (click)="scrollTo('activity')"><i-lucide [img]="icons.Receipt"></i-lucide><span>Activity</span></button>
       <button class="nav-item" (click)="categoriesOpen.set(true)"><i-lucide [img]="icons.Tags"></i-lucide><span>Categories & limits</span></button>
       <button class="nav-item" (click)="openSettings()"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
@@ -190,6 +191,73 @@
         </article>
       </section>
 
+      <section id="goals" class="middle-grid goals-grid">
+        <article class="panel goals-panel" aria-labelledby="goals-title">
+          <div class="panel-heading">
+            <div><h2 id="goals-title">Savings goals</h2><p>Link savings to a goal when you add them</p></div>
+            <button class="text-button" (click)="openGoal(null)"><i-lucide [img]="icons.Plus"></i-lucide> New goal</button>
+          </div>
+          @for (c of goalCards(); track c.goal.id) {
+            <div class="goal-row" [attr.data-state]="c.state">
+              <button class="goal-main" (click)="openGoal(c.goal)" [attr.aria-label]="'Edit goal ' + c.goal.name">
+                <span class="goal-icon" aria-hidden="true">{{ c.goal.icon }}</span>
+                <span class="goal-text">
+                  <strong>{{ c.goal.name }}</strong>
+                  <small><b>{{ c.goal.saved | currency:'INR':'symbol':'1.0-0' }}</b> of {{ c.goal.targetAmount | currency:'INR':'symbol':'1.0-0' }}@if (c.goal.targetDate) { · by {{ goalDateLabel(c.goal.targetDate) }} }</small>
+                </span>
+                <span class="goal-percent">{{ c.percent }}%</span>
+              </button>
+              <div class="progress goal-progress" role="progressbar" [attr.aria-valuenow]="c.percent" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="c.goal.name + ' progress'"><span [style.width.%]="c.percent"></span></div>
+              <div class="goal-foot">
+                <small>
+                  @switch (c.state) {
+                    @case ('reached') { Reached 🎉 }
+                    @case ('onTrack') { Save {{ c.perMonth | currency:'INR':'symbol':'1.0-0' }} a month for {{ c.months }} {{ c.months === 1 ? 'month' : 'months' }} }
+                    @case ('late') { Target date passed · {{ c.left | currency:'INR':'symbol':'1.0-0' }} to go }
+                    @default { {{ c.left | currency:'INR':'symbol':'1.0-0' }} to go }
+                  }
+                </small>
+                @if (c.state !== 'reached') { <button class="text-button" (click)="addToGoal(c.goal)"><i-lucide [img]="icons.Plus"></i-lucide> Add money</button> }
+              </div>
+            </div>
+          } @empty {
+            <div class="goal-suggest">
+              <span class="goal-icon" aria-hidden="true">🛟</span>
+              <div>
+                <strong>Start with an emergency fund</strong>
+                <p>Aim for 3–6 months of expenses, so a surprise bill never eats your plans. About {{ emergencySuggestion().targetAmount | currency:'INR':'symbol':'1.0-0' }} is 3 months of what you spend now.</p>
+                <button class="primary-button" data-tab="SAVING" (click)="openGoal(null, emergencySuggestion())"><i-lucide [img]="icons.Flag"></i-lucide> Create this goal</button>
+              </div>
+            </div>
+          }
+          @if (hiddenGoals().length) {
+            <p class="goals-hidden">Hidden:
+              @for (g of hiddenGoals(); track g.id; let last = $last) { {{ g.icon }} {{ g.name }} <button class="text-button" (click)="showGoalAgain(g)">Show</button>{{ last ? '' : ' · ' }} }
+            </p>
+          }
+        </article>
+
+        <article class="panel trend-panel" aria-labelledby="trend-title">
+          <div class="panel-heading"><div><h2 id="trend-title">Savings rate</h2><p>Last 6 months · dashed line = your {{ settings().savingsPercent }}% target</p></div></div>
+          @if (trendHasData()) {
+            <div class="trend-chart">
+              <span class="trend-target" [style.bottom]="'calc(40px + (100% - 40px) * ' + trendHeight(settings().savingsPercent) / 100 + ')'" aria-hidden="true"></span>
+              @for (m of trend(); track m.key) {
+                <div class="trend-col" [attr.aria-label]="m.label + ': saved ' + m.saved + ' rupees, ' + (m.rate ?? 0) + '% of income'">
+                  <span class="trend-bar-wrap">
+                    <span class="trend-bar" [class.hit]="(m.rate ?? 0) >= settings().savingsPercent" [style.height.%]="trendHeight(m.rate)"></span>
+                    <span class="trend-value" [style.bottom]="'calc(' + trendHeight(m.rate) + '% + 4px)'">{{ m.rate !== null ? m.rate + '%' : '—' }}</span>
+                  </span>
+                  <span class="trend-foot"><span class="trend-label">{{ m.label }}</span><small class="trend-saved">{{ m.saved | currency:'INR':'symbol':'1.0-0' }}</small></span>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="muted-empty">Your savings rate for each month will show here as you add income and savings.</p>
+          }
+        </article>
+      </section>
+
       <section id="plan" class="panel plan-panel" aria-labelledby="plan-title">
         <div class="panel-heading">
           <div><h2 id="plan-title">Your {{ settings().needsPercent }} / {{ settings().wantsPercent }} / {{ settings().savingsPercent }} plan</h2><p>Every expense category belongs to one bucket</p></div>
@@ -307,12 +375,15 @@
 @if (quickOpen()) {
   <app-quick-expense [categories]="categories()" [history]="recentEntries()" [spent]="amounts()" (saved)="onQuickSaved($event)" (closed)="quickOpen.set(false)"></app-quick-expense>
 }
+@if (goalSheet(); as gs) {
+  <app-goal-sheet [goal]="gs.goal" [suggestion]="gs.suggestion" [monthStartDay]="settings().monthStartDay" (saved)="onGoalSaved($event)" (closed)="goalSheet.set(undefined)"></app-goal-sheet>
+}
 @if (categoriesOpen()) {
   <app-categories-sheet [categories]="categories()" [settings]="settings()" [income]="totals().income" (changed)="onCategoryChanged($event)" (closed)="categoriesOpen.set(false)"></app-categories-sheet>
 }
 
 @if (sheet(); as sh) {
-  <app-entry-sheet [kind]="sh.kind" [entry]="sh.entry" [categories]="categories()" [defaultDate]="defaultDate()" (saved)="onSaved($event)" (closed)="sheet.set(undefined)"></app-entry-sheet>
+  <app-entry-sheet [kind]="sh.kind" [entry]="sh.entry" [categories]="categories()" [defaultDate]="defaultDate()" [goals]="goals()" [goalForNew]="sheetGoal()" (saved)="onSaved($event)" (closed)="sheet.set(undefined)"></app-entry-sheet>
 }
 
 @if (settingsOpen()) {

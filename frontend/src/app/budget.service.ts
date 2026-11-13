@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api.config';
-import { BudgetSettings, Category, CategoryDraft, Entry, EntryDraft } from './models';
+import { BudgetSettings, Category, CategoryDraft, Entry, EntryDraft, Goal, GoalDraft } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class BudgetService {
@@ -23,6 +23,10 @@ export class BudgetService {
   createEntry(draft: EntryDraft): Observable<Entry> { return this.http.post<Entry>(`${this.api}/entries`, draft); }
   updateEntry(id: number, draft: EntryDraft): Observable<Entry> { return this.http.put<Entry>(`${this.api}/entries/${id}`, draft); }
   deleteEntry(id: number): Observable<void> { return this.http.delete<void>(`${this.api}/entries/${id}`); }
+
+  goals(): Observable<Goal[]> { return this.http.get<Goal[]>(`${this.api}/goals`); }
+  createGoal(goal: GoalDraft): Observable<Goal> { return this.http.post<Goal>(`${this.api}/goals`, goal); }
+  updateGoal(id: number, goal: GoalDraft): Observable<Goal> { return this.http.put<Goal>(`${this.api}/goals/${id}`, goal); }
 
   /** Turns a failed request into one short sentence for the person using the app. */
   errorMessage(err: unknown, fallback: string): string {
