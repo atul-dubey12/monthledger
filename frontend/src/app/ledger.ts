@@ -1,4 +1,4 @@
-import { Bucket, Category, Entry, Goal } from './models';
+import { Bucket, Category, Entry, Goal, Recurring } from './models';
 
 export interface MonthTotals {
   income: number;
@@ -137,4 +137,49 @@ export function goalPlan(goal: Goal, monthsLeft: number | null): { left: number;
 
 function isoOf(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export type DueState = 'paid' | 'overdue' | 'soon' | 'upcoming';
+export interface DueItem { item: Recurring; due: Date; dueIso: string; state: DueState; paidBy: Entry | null; daysAway: number; }
+
+/** The date a monthly item falls on inside a budget month that starts on `startDay` (5 → 5 Nov – 4 Dec). */
+export function dueDateIn(item: Recurring, monthStart: Date, startDay: number): Date {
+  const y = monthStart.getFullYear(), m = monthStart.getMonth();
+  const inNext = item.dayOfMonth < startDay;
+  const year = inNext && m === 11 ? y + 1 : y, month = inNext ? (m + 1) % 12 : m;
+  const last = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(item.dayOfMonth, last));
+}
+
+/**
+ * Which monthly items are paid in a month. An entry paid from the list (recurringId) counts exactly;
+ * otherwise an entry logged by hand with the same kind and category and a similar amount (half to
+ * one-and-a-half times) counts, so nothing is asked for twice. Each entry pays at most one item.
+ */
+export function dueItems(items: Recurring[], entries: Entry[], monthStart: Date, startDay: number, today: Date): DueItem[] {
+  const claimed = new Set<number>();
+  const paid = new Map<number, Entry>();
+  for (const item of items) {
+    const exact = entries.find((e) => e.recurringId === item.id && !claimed.has(e.id));
+    if (exact) { paid.set(item.id, exact); claimed.add(exact.id); }
+  }
+  for (const item of items) {
+    if (paid.has(item.id)) continue;
+    const manual = entries.find((e) => !e.recurringId && !claimed.has(e.id) && e.kind === item.kind && e.categoryId === item.categoryId
+      && e.amount >= item.amount * 0.5 && e.amount <= item.amount * 1.5);
+    if (manual) { paid.set(item.id, manual); claimed.add(manual.id); }
+  }
+  const day = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return items.map((item) => {
+    const due = dueDateIn(item, monthStart, startDay);
+    const daysAway = Math.round((due.getTime() - day.getTime()) / 86_400_000);
+    const paidBy = paid.get(item.id) ?? null;
+    const state: DueState = paidBy ? 'paid' : daysAway < 0 ? 'overdue' : daysAway <= 3 ? 'soon' : 'upcoming';
+    return { item, due, dueIso: isoOf(due), state, paidBy, daysAway };
+  }).sort((a, b) => a.due.getTime() - b.due.getTime() || a.item.id - b.item.id);
+}
+
+/** Bills and savings still to come out this month (income still to come in is not counted). */
+export function stillDue(list: DueItem[]): number {
+  return money(list.filter((d) => d.state !== 'paid' && d.item.kind !== 'INCOME').reduce((sum, d) => sum + d.item.amount, 0));
 }

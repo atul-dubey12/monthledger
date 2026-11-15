@@ -1,4 +1,4 @@
-import { BudgetSettings, Category, Entry, Goal } from './models';
+import { BudgetSettings, Category, Entry, Goal, Recurring } from './models';
 
 /**
  * The last data this device loaded from the server, shown instantly on the next visit while a
@@ -10,6 +10,7 @@ export interface Snapshot {
   settings: BudgetSettings;
   categories: Category[];
   goals: Goal[];
+  recurring?: Recurring[];
   trendEntries: Entry[];
   /** Entries per budget month key ("2026-11"), most recently used last. */
   months: Record<string, Entry[]>;
@@ -36,7 +37,7 @@ export function writeSnapshot(patch: Partial<Omit<Snapshot, 'savedAt'>>): void {
     for (const [key, entries] of Object.entries(patch.months ?? {})) { delete months[key]; months[key] = entries; }
     const keys = Object.keys(months);
     for (const old of keys.slice(0, Math.max(0, keys.length - MAX_MONTHS))) delete months[old];
-    const next = { settings: current?.settings, categories: current?.categories ?? [], goals: current?.goals ?? [], trendEntries: current?.trendEntries ?? [], ...patch, months, savedAt: new Date().toISOString() };
+    const next = { settings: current?.settings, categories: current?.categories ?? [], goals: current?.goals ?? [], recurring: current?.recurring ?? [], trendEntries: current?.trendEntries ?? [], ...patch, months, savedAt: new Date().toISOString() };
     if (!next.settings) return;   // nothing useful to show yet
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch { /* storage full or blocked: the app still works, just without the instant start */ }

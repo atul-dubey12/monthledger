@@ -110,6 +110,8 @@ export class EntrySheetComponent implements OnInit {
   @Input() goals: Goal[] = [];
   /** Pre-picks a goal, e.g. from a goal's "Add money" button. */
   @Input() goalForNew: number | null = null;
+  /** Fills a new entry, e.g. from a monthly item in "Due this month". */
+  @Input() prefill: Partial<EntryDraft> | null = null;
   @Output() saved = new EventEmitter<{ entry: Entry; edited: boolean; addAnother: boolean }>();
   @Output() closed = new EventEmitter<void>();
 
@@ -168,6 +170,21 @@ export class EntrySheetComponent implements OnInit {
     const remembered = Number(this.readRaw(LAST_GOAL_KEY));
     const preferred = this.goalForNew ?? remembered;
     this.goalId.set(this.usableGoals().some((g) => g.id === preferred && !g.archived) ? preferred : null);
+    const p = this.prefill;
+    if (p) {
+      if (p.amount != null) this.amount = p.amount;
+      if (p.categoryId != null) this.categoryId.set(p.categoryId);
+      if (p.paymentMode) this.paymentMode.set(p.paymentMode);
+      if (p.date) this.date = p.date;
+      if (p.note) this.note = p.note;
+      if (p.goalId !== undefined) this.goalId.set(p.goalId);
+    }
+  }
+
+  /** The monthly item this entry pays: kept only while the kind still matches it. */
+  private linkedRecurring(): number | null {
+    const source = this.entry ?? this.prefill;
+    return source?.recurringId != null && source.kind === this.kindNow() ? source.recurringId : null;
   }
 
   @HostListener('document:keydown.escape') onEscape(): void { this.closed.emit(); }
@@ -202,6 +219,7 @@ export class EntrySheetComponent implements OnInit {
     const draft: EntryDraft = {
       date: this.date, kind: this.kindNow(), amount: this.amount, categoryId, paymentMode: this.paymentMode(), note: this.note.trim() || null,
       goalId: this.tab() === 'SAVING' ? this.goalId() : null,
+      recurringId: this.linkedRecurring(),
     };
     this.saving.set(true);
     this.error.set('');
@@ -213,7 +231,8 @@ export class EntrySheetComponent implements OnInit {
         this.remember(LAST_MODE_KEY, this.paymentMode());
         if (this.tab() === 'SAVING') { try { localStorage.setItem(LAST_GOAL_KEY, String(this.goalId() ?? '')); } catch { /* storage blocked */ } }
         this.saved.emit({ entry, edited: !!this.entry, addAnother });
-        if (addAnother) { this.amount = null; this.note = ''; document.getElementById('amount')?.focus(); }
+        // The next entry is a fresh one: it must not pay the same monthly item again.
+        if (addAnother) { this.amount = null; this.note = ''; this.prefill = null; document.getElementById('amount')?.focus(); }
       },
       error: (err) => { this.saving.set(false); this.error.set(this.service.errorMessage(err, 'Could not save this entry. Try again.')); },
     });

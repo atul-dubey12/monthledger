@@ -4,6 +4,8 @@ import com.monthledger.category.Category;
 import com.monthledger.category.CategoryRepository;
 import com.monthledger.goal.Goal;
 import com.monthledger.goal.GoalRepository;
+import com.monthledger.recurring.Recurring;
+import com.monthledger.recurring.RecurringRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -21,11 +23,13 @@ public class EntryController {
     private final EntryRepository entries;
     private final CategoryRepository categories;
     private final GoalRepository goals;
+    private final RecurringRepository recurring;
 
-    public EntryController(EntryRepository entries, CategoryRepository categories, GoalRepository goals) {
+    public EntryController(EntryRepository entries, CategoryRepository categories, GoalRepository goals, RecurringRepository recurring) {
         this.entries = entries;
         this.categories = categories;
         this.goals = goals;
+        this.recurring = recurring;
     }
 
     /** Newest first. Both dates are inclusive. */
@@ -69,6 +73,7 @@ public class EntryController {
         String note = request.note() == null ? null : request.note().trim();
         entry.setNote(note == null || note.isEmpty() ? null : note);
         entry.setGoalId(request.goalId());
+        entry.setRecurringId(request.recurringId());
     }
 
     private void validate(EntryRequest request, Entry existing) {
@@ -92,6 +97,11 @@ public class EntryController {
             Goal goal = goals.findById(request.goalId()).orElseThrow(() -> bad("That goal no longer exists."));
             boolean keepsOldGoal = existing != null && request.goalId().equals(existing.getGoalId());
             if (goal.isArchived() && !keepsOldGoal) throw bad("That goal is hidden. Pick another one.");
+        }
+        if (request.recurringId() != null) {
+            Recurring item = recurring.findById(request.recurringId()).orElseThrow(() -> bad("That monthly item no longer exists."));
+            // A withdrawal never "pays" a monthly saving; otherwise the entry must be the same kind as the item.
+            if (item.getKind() != request.kind()) throw bad("This entry doesn't match the monthly item it's paying.");
         }
     }
 

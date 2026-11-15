@@ -51,7 +51,7 @@ const SECTIONS: { bucket: Bucket; label: string; percentKey?: keyof BudgetSettin
             </button>
           }
         }
-        @if (editing()?.id === null && editing()?.bucket === s.bucket) {
+        @if (editing() && editing()!.id === null && editing()!.bucket === s.bucket) {
           <ng-container *ngTemplateOutlet="editor"></ng-container>
         } @else {
           <button type="button" class="text-button cat-add" (click)="add(s.bucket)"><i-lucide [img]="icons.Plus"></i-lucide> Add to {{ s.label }}</button>

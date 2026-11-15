@@ -16,6 +16,7 @@ public class Entry {
     @Enumerated(EnumType.STRING) @Column(name = "payment_mode", length = 10) private PaymentMode paymentMode;
     @Column(length = 180) private String note;
     @Column(name = "goal_id") private Long goalId;
+    @Column(name = "recurring_id") private Long recurringId;
 
     public Long getId() { return id; }
     public LocalDate getDate() { return date; }
@@ -32,4 +33,6 @@ public class Entry {
     public void setNote(String note) { this.note = note; }
     public Long getGoalId() { return goalId; }
     public void setGoalId(Long goalId) { this.goalId = goalId; }
+    public Long getRecurringId() { return recurringId; }
+    public void setRecurringId(Long recurringId) { this.recurringId = recurringId; }
 }

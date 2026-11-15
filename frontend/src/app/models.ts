@@ -41,6 +41,8 @@ export interface Entry {
   note: string | null;
   /** Savings and withdrawals can count towards one goal. */
   goalId: number | null;
+  /** The monthly item this entry paid, if it was logged from "Due this month". */
+  recurringId: number | null;
 }
 export type EntryDraft = Omit<Entry, 'id'>;
 
@@ -70,3 +72,18 @@ export interface Goal {
   saved: number;
 }
 export type GoalDraft = Pick<Goal, 'name' | 'icon' | 'targetAmount' | 'startingAmount' | 'targetDate'> & { archived?: boolean };
+
+/** Something that happens every month. Never posted automatically: it shows as due until paid. */
+export interface Recurring {
+  id: number;
+  name: string;
+  kind: Exclude<EntryKind, 'SAVING_WITHDRAWAL'>;
+  amount: number;
+  categoryId: number;
+  goalId: number | null;
+  /** 1–31; in shorter months it falls on the last day. */
+  dayOfMonth: number;
+  paymentMode: PaymentMode | null;
+  active: boolean;
+}
+export type RecurringDraft = Omit<Recurring, 'id' | 'active'> & { active?: boolean };

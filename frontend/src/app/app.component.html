@@ -9,6 +9,7 @@
       <button class="nav-item" (click)="scrollTo('plan')"><i-lucide [img]="icons.Target"></i-lucide><span>Budget plan</span></button>
       <button class="nav-item" (click)="scrollTo('goals')"><i-lucide [img]="icons.Flag"></i-lucide><span>Savings goals</span></button>
       <button class="nav-item" (click)="scrollTo('activity')"><i-lucide [img]="icons.Receipt"></i-lucide><span>Activity</span></button>
+      <button class="nav-item" (click)="recurringOpen.set(true)"><i-lucide [img]="icons.Repeat"></i-lucide><span>Monthly items</span></button>
       <button class="nav-item" (click)="categoriesOpen.set(true)"><i-lucide [img]="icons.Tags"></i-lucide><span>Categories & limits</span></button>
       <button class="nav-item" (click)="openSettings()"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
     </nav>
@@ -93,12 +94,53 @@
         </article>
         <article class="stat-card left-card" [class.left-over]="totals().left < 0">
           <div class="stat-top"><span class="stat-icon left-icon"><i-lucide [img]="icons.Wallet"></i-lucide></span><span class="stat-label">Left to spend</span></div>
-          <div class="stat-value" [class.negative]="totals().left < 0">{{ totals().left | currency:'INR':'symbol':'1.0-0' }}</div>
+          <div class="stat-value" [class.negative]="leftAfterBills() < 0">{{ leftAfterBills() | currency:'INR':'symbol':'1.0-0' }}</div>
           <div class="stat-sub">
-            @if (totals().left < 0) { Over by {{ abs(totals().left) | currency:'INR':'symbol':'1.0-0' }} this month }
+            @if (billsDue() > 0) { After {{ billsDue() | currency:'INR':'symbol':'1.0-0' }} of bills still due@if (perDay() !== null) { · about {{ perDay() | currency:'INR':'symbol':'1.0-0' }} a day } }
+            @else if (leftAfterBills() < 0) { Over by {{ abs(leftAfterBills()) | currency:'INR':'symbol':'1.0-0' }} this month }
             @else if (perDay() !== null) { About {{ perDay() | currency:'INR':'symbol':'1.0-0' }} a day for {{ daysLeft() }} {{ daysLeft() === 1 ? 'day' : 'days' }} }
             @else { Income − spent − saved }
           </div>
+        </article>
+      </section>
+
+      <section class="middle-grid due-grid">
+        <article class="panel due-panel" aria-labelledby="due-title">
+          <div class="panel-heading">
+            <div><h2 id="due-title">Due this month</h2><p>@if (recurring().length) { {{ dueOpen() ? dueOpen() + ' still to do' : 'All done for ' + monthName() + ' 🎉' }} } @else { Salary, home money, SIP, recharge, gym fee… }</p></div>
+            <button class="text-button" (click)="recurringOpen.set(true)"><i-lucide [img]="icons.Repeat"></i-lucide> Manage</button>
+          </div>
+          @for (d of due(); track d.item.id) {
+            <div class="due-row" [attr.data-state]="d.state">
+              <span class="due-icon" aria-hidden="true">{{ categoryById().get(d.item.categoryId)?.icon }}</span>
+              <span class="due-text">
+                <strong>{{ d.item.name }}</strong>
+                <small>{{ (d.paidBy?.amount ?? d.item.amount) | currency:'INR':'symbol':'1.0-0' }} · {{ dueWhen(d) }}</small>
+              </span>
+              @if (d.state === 'paid') {
+                <span class="due-done"><i-lucide [img]="icons.CircleCheck"></i-lucide></span>
+              } @else {
+                <button class="text-button due-edit" (click)="editDue(d)" [attr.aria-label]="'Change amount or date for ' + d.item.name">Edit</button>
+                <button class="secondary-button due-pay" [attr.data-kind]="d.item.kind" [disabled]="paying().has(d.item.id)" (click)="payDue(d)">
+                  {{ paying().has(d.item.id) ? '…' : d.item.kind === 'INCOME' ? 'Received' : d.item.kind === 'SAVING' ? 'Saved' : 'Paid' }}
+                </button>
+              }
+            </div>
+          } @empty {
+            <p class="muted-empty">Add the things that happen every month. They'll show here with their due date, and one tap logs them.</p>
+            <button class="secondary-button" (click)="recurringOpen.set(true)"><i-lucide [img]="icons.Repeat"></i-lucide> Add monthly items</button>
+          }
+        </article>
+
+        <article class="panel insights-panel" aria-labelledby="insights-title">
+          <div class="panel-heading"><div><h2 id="insights-title">Insights</h2><p>{{ isCurrentMonth() ? 'This month so far' : monthName() }}</p></div></div>
+          <ul class="insight-lines">
+            @for (i of insights(); track i.text) {
+              <li [attr.data-tone]="i.tone"><i-lucide [img]="icons[i.icon]"></i-lucide><span>{{ i.text }}</span></li>
+            } @empty {
+              <li data-tone="info"><i-lucide [img]="icons.Lightbulb"></i-lucide><span>Add your salary and a few expenses. Tips about your month will show here.</span></li>
+            }
+          </ul>
         </article>
       </section>
 
@@ -377,6 +419,9 @@
 @if (quickOpen()) {
   <app-quick-expense [categories]="categories()" [history]="recentEntries()" [spent]="amounts()" (saved)="onQuickSaved($event)" (closed)="quickOpen.set(false)"></app-quick-expense>
 }
+@if (recurringOpen()) {
+  <app-recurring-sheet [items]="recurring()" [categories]="categories()" [goals]="goals()" [suggestions]="recurringSuggestions()" (changed)="onRecurringChanged($event)" (closed)="recurringOpen.set(false)"></app-recurring-sheet>
+}
 @if (goalSheet(); as gs) {
   <app-goal-sheet [goal]="gs.goal" [suggestion]="gs.suggestion" [monthStartDay]="settings().monthStartDay" (saved)="onGoalSaved($event)" (closed)="goalSheet.set(undefined)"></app-goal-sheet>
 }
@@ -385,7 +430,7 @@
 }
 
 @if (sheet(); as sh) {
-  <app-entry-sheet [kind]="sh.kind" [entry]="sh.entry" [categories]="categories()" [defaultDate]="defaultDate()" [goals]="goals()" [goalForNew]="sheetGoal()" (saved)="onSaved($event)" (closed)="sheet.set(undefined)"></app-entry-sheet>
+  <app-entry-sheet [kind]="sh.kind" [entry]="sh.entry" [categories]="categories()" [defaultDate]="defaultDate()" [goals]="goals()" [goalForNew]="sheetGoal()" [prefill]="sheetPrefill()" (saved)="onSaved($event)" (closed)="sheet.set(undefined)"></app-entry-sheet>
 }
 
 @if (settingsOpen()) {

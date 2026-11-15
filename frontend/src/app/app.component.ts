@@ -5,17 +5,18 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import {
   LucideAngularModule, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank,
-  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag
+  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag, Repeat, Lightbulb, CalendarClock, CircleCheck
 } from 'lucide-angular';
 import { NetworkStatus, readApiKey, saveApiKey } from './api.interceptor';
 import { BudgetService } from './budget.service';
-import { BUCKETS, Bucket, BudgetSettings, Category, Entry, EntryKind, Goal, GoalDraft, PAYMENT_MODES } from './models';
+import { BUCKETS, Bucket, BudgetSettings, Category, Entry, EntryDraft, EntryKind, Goal, GoalDraft, PAYMENT_MODES, Recurring, RecurringDraft } from './models';
 import { budgetMonthFor, contains, daysLeft, isoDate, monthName, monthRange, monthsBetween, shiftMonth, shortMonth, totalDays } from './month';
-import { biggestRise, budgetStatuses, byDay, categoryAmounts, change, dailySpending, entryBucket, goalPlan, monthTotals, parseIso, savingsTrend } from './ledger';
+import { DueItem, biggestRise, budgetStatuses, byDay, categoryAmounts, change, dailySpending, dueItems, entryBucket, goalPlan, monthTotals, parseIso, savingsTrend, stillDue } from './ledger';
 import { EntrySheetComponent } from './entry-sheet.component';
 import { QuickExpenseComponent } from './quick-expense.component';
 import { CategoriesSheetComponent } from './categories-sheet.component';
 import { GoalSheetComponent } from './goal-sheet.component';
+import { RecurringSheetComponent } from './recurring-sheet.component';
 import { Snapshot, clearSnapshot, readSnapshot, writeSnapshot } from './cache';
 
 type Theme = 'system' | 'light' | 'dark';
@@ -28,13 +29,13 @@ const DEFAULT_SETTINGS: BudgetSettings = { name: '', needsPercent: 50, wantsPerc
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent, QuickExpenseComponent, CategoriesSheetComponent, GoalSheetComponent],
+  imports: [FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent, QuickExpenseComponent, CategoriesSheetComponent, GoalSheetComponent, RecurringSheetComponent],
   templateUrl: './app.component.html'
 })
 export class AppComponent {
   readonly icons = {
     ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank, Settings2, ShieldCheck,
-    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag
+    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag, Repeat, Lightbulb, CalendarClock, CircleCheck
   };
   readonly buckets = BUCKETS;
   private readonly service = inject(BudgetService);
@@ -47,6 +48,7 @@ export class AppComponent {
   /** The month before the one on screen, for "compared with last month". */
   readonly previousEntries = signal<Entry[]>([]);
   readonly goals = signal<Goal[]>([]);
+  readonly recurring = signal<Recurring[]>([]);
   /** The last TREND_MONTHS budget months of entries, for the savings-rate trend. */
   readonly trendEntries = signal<Entry[]>([]);
   /** Which budget month `entries` holds, so a slow response for another month is ignored. */
@@ -82,7 +84,81 @@ export class AppComponent {
   readonly categoryById = computed(() => new Map(this.categories().map((c) => [c.id, c])));
   readonly totals = computed(() => monthTotals(this.entries(), this.categoryById()));
   /** What can still be spent per day for the rest of this month without eating into savings. */
-  readonly perDay = computed(() => this.isCurrentMonth() && this.daysLeft() > 0 && this.totals().left > 0 ? this.totals().left / this.daysLeft() : null);
+  // ── Monthly items ─────────────────────────────────────────
+  readonly due = computed<DueItem[]>(() => dueItems(this.recurring(), this.entries(), this.month().start, this.settings().monthStartDay, this.today));
+  readonly dueOpen = computed(() => this.due().filter((d) => d.state !== 'paid').length);
+  /** Bills and savings still to go out this month. */
+  readonly billsDue = computed(() => this.isCurrentMonth() ? stillDue(this.due()) : 0);
+  /** Free to spend once the bills still due are paid. */
+  readonly leftAfterBills = computed(() => Math.round((this.totals().left - this.billsDue()) * 100) / 100);
+  /** What can still be spent per day for the rest of this month without eating into savings or bills. */
+  readonly perDay = computed(() => this.isCurrentMonth() && this.daysLeft() > 0 && this.leftAfterBills() > 0 ? this.leftAfterBills() / this.daysLeft() : null);
+  readonly recurringSuggestions = computed<RecurringDraft[]>(() => {
+    const covered = new Set(this.recurring().map((r) => `${r.kind}:${r.categoryId}`));
+    const prevCats = new Map<number, number[]>();
+    for (const e of this.previousEntries()) if (e.kind === 'EXPENSE') prevCats.set(e.categoryId, [...(prevCats.get(e.categoryId) ?? []), e.amount]);
+    const picks = new Map<string, RecurringDraft>();
+    for (const e of [...this.entries(), ...this.previousEntries()]) {
+      if (e.kind === 'SAVING_WITHDRAWAL') continue;
+      const c = this.categoryById().get(e.categoryId);
+      const key = `${e.kind}:${e.categoryId}`;
+      if (!c || covered.has(key)) continue;
+      // Income, savings and bigger needs are usually monthly; any expense seen last month at a similar amount is too.
+      const repeats = (prevCats.get(e.categoryId) ?? []).some((a) => Math.abs(a - e.amount) <= e.amount * 0.2) && this.entries().includes(e);
+      if (!(e.kind !== 'EXPENSE' || (c.bucket === 'NEED' && e.amount >= 300) || repeats)) continue;
+      const day = parseIso(e.date).getDate();
+      const prev = picks.get(key);
+      if (!prev || e.amount > prev.amount) picks.set(key, { name: e.note || c.name, kind: e.kind as Recurring['kind'], amount: e.amount, categoryId: e.categoryId, goalId: e.goalId, dayOfMonth: day, paymentMode: e.paymentMode });
+    }
+    return [...picks.values()].sort((a, b) => b.amount - a.amount).slice(0, 5);
+  });
+
+  // ── Insights ──────────────────────────────────────────────
+  readonly insights = computed(() => {
+    const list: { icon: 'CalendarClock' | 'TrendingUp' | 'PiggyBank' | 'Receipt' | 'Lightbulb' | 'CircleCheck'; text: string; tone: 'bad' | 'warn' | 'good' | 'info' }[] = [];
+    const t = this.totals();
+    const rupees = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
+    const current = this.isCurrentMonth();
+    const shortDate = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    if (current) {
+      const overdue = this.due().filter((d) => d.state === 'overdue');
+      if (overdue.length === 1) list.push({ icon: 'CalendarClock', tone: 'bad', text: `${overdue[0].item.name} was due on ${shortDate(overdue[0].due)}. Tap Paid if it's done.` });
+      else if (overdue.length > 1) list.push({ icon: 'CalendarClock', tone: 'bad', text: `${overdue.length} monthly items are overdue: ${overdue.map((d) => d.item.name).join(', ')}.` });
+      const elapsed = totalDays(this.month()) - this.daysLeft() + 1;
+      const target = (t.income * this.settings().wantsPercent) / 100;
+      if (t.income > 0 && t.wants > 0) {
+        if (t.wants > target) list.push({ icon: 'TrendingUp', tone: 'bad', text: `Wants are ${rupees(t.wants - target)} over your ${rupees(target)} plan already.` });
+        else if (elapsed >= 3) {
+          const perDay = t.wants / elapsed;
+          const hitDay = Math.ceil(target / perDay);
+          if (hitDay <= totalDays(this.month())) {
+            const when = new Date(this.month().start.getFullYear(), this.month().start.getMonth(), this.month().start.getDate() + hitDay - 1);
+            list.push({ icon: 'TrendingUp', tone: 'warn', text: `At this pace, Wants will use up your ${rupees(target)} plan around ${shortDate(when)}.` });
+          } else list.push({ icon: 'CircleCheck', tone: 'good', text: `Wants are on pace for about ${rupees(perDay * totalDays(this.month()))} of your ${rupees(target)} plan.` });
+        }
+      }
+      const soon = this.due().find((d) => d.state === 'soon');
+      if (soon) {
+        const when = soon.daysAway === 0 ? 'today' : soon.daysAway === 1 ? 'tomorrow' : `in ${soon.daysAway} days`;
+        list.push({ icon: 'CalendarClock', tone: 'info', text: soon.item.kind === 'INCOME' ? `${soon.item.name} (${rupees(soon.item.amount)}) is expected ${when}.` : `${soon.item.name} (${rupees(soon.item.amount)}) is due ${when}.` });
+      }
+    }
+    if (t.income > 0) {
+      const goal = this.settings().savingsPercent;
+      const rate = t.savingsRate ?? 0;
+      if (rate >= goal) list.push({ icon: 'PiggyBank', tone: 'good', text: `You've saved ${rate}% ${current ? 'so far' : 'this month'}, on target for ${goal}%.` });
+      else list.push({ icon: 'PiggyBank', tone: 'warn', text: `You've saved ${rate}% ${current ? 'so far' : 'this month'}. ${rupees((t.income * goal) / 100 - t.saved)} more reaches your ${goal}%.` });
+    }
+    const wantIds = this.categories().filter((c) => c.bucket === 'WANT').map((c) => c.id);
+    const top = wantIds.map((id) => ({ id, amount: this.amounts().get(id) ?? 0 })).sort((a, b) => b.amount - a.amount)[0];
+    if (top && top.amount > 0) list.push({ icon: 'Receipt', tone: 'info', text: `${this.categoryById().get(top.id)?.name} is your biggest want: ${rupees(top.amount)} this month.` });
+    if (current) {
+      const last = this.entries().map((e) => e.date).filter((d) => d <= this.todayIso).sort().pop();
+      const since = last ? Math.round((parseIso(this.todayIso).getTime() - parseIso(last).getTime()) / 86_400_000) : null;
+      if (since !== null && since >= 3) list.push({ icon: 'Lightbulb', tone: 'info', text: `Nothing logged for ${since} days. Anything to add?` });
+    }
+    return list.slice(0, 4);
+  });
 
   // ── Budgets ───────────────────────────────────────────────
   readonly amounts = computed(() => categoryAmounts(this.entries()));
@@ -198,6 +274,11 @@ export class AppComponent {
   /** Goal to pre-pick when the entry sheet opens from a goal's "Add money". */
   readonly sheetGoal = signal<number | null>(null);
   readonly categoriesOpen = signal(false);
+  readonly recurringOpen = signal(false);
+  /** Prefill for the entry sheet when it opens from a due item. */
+  readonly sheetPrefill = signal<Partial<EntryDraft> | null>(null);
+  /** Due items being paid right now, to disable their button. */
+  readonly paying = signal<Set<number>>(new Set());
   /** This month and last, so Quick expense can rank your usual categories. */
   readonly recentEntries = computed(() => [...this.entries(), ...this.previousEntries()]);
   /** New entries default to today, or to the last day of a past month being viewed. */
@@ -237,6 +318,7 @@ export class AppComponent {
     this.settings.set(snap.settings);
     this.categories.set(snap.categories);
     this.goals.set(snap.goals);
+    this.recurring.set(snap.recurring ?? []);
     this.trendEntries.set(snap.trendEntries);
     this.cachedMonths = snap.months;
     const month = this.month();
@@ -262,7 +344,7 @@ export class AppComponent {
         this.settings.set(settings);
         this.categories.set(categories);
         writeSnapshot({ settings, categories });
-        this.loaded(); this.loadEntries(); this.loadGoals(); this.loadTrend();
+        this.loaded(); this.loadEntries(); this.loadGoals(); this.loadTrend(); this.loadRecurring();
       },
       error: (err) => this.failed(err),
     });
@@ -275,7 +357,7 @@ export class AppComponent {
       clearSnapshot();
       this.cachedMonths = {};
       this.savedCopyFrom.set(null);
-      this.entries.set([]); this.previousEntries.set([]); this.goals.set([]); this.trendEntries.set([]);
+      this.entries.set([]); this.previousEntries.set([]); this.goals.set([]); this.trendEntries.set([]); this.recurring.set([]);
       this.error.set('');
       this.needsKey.set(true);
       this.openSettings();
@@ -313,6 +395,55 @@ export class AppComponent {
     });
   }
 
+  loadRecurring(): void {
+    this.service.recurring().subscribe({ next: (items) => { this.recurring.set(items); writeSnapshot({ recurring: items }); }, error: () => { /* keep the last list */ } });
+  }
+  onRecurringChanged(message: string): void { this.showToast({ message }); this.loadRecurring(); }
+
+  /** One tap: log a due item exactly as set up, dated today (or its due date when catching up on a past month). */
+  payDue(d: DueItem): void {
+    if (this.paying().has(d.item.id)) return;
+    const item = d.item;
+    const name = this.categoryById().get(item.categoryId)?.name;
+    const draft: EntryDraft = {
+      date: this.isCurrentMonth() ? this.todayIso : d.dueIso, kind: item.kind, amount: item.amount, categoryId: item.categoryId,
+      paymentMode: item.paymentMode, note: item.name !== name ? item.name : null, goalId: item.kind === 'SAVING' ? item.goalId : null, recurringId: item.id,
+    };
+    this.paying.update((s) => new Set(s).add(item.id));
+    this.service.createEntry(draft).subscribe({
+      next: (entry) => {
+        this.paying.update((s) => { const n = new Set(s); n.delete(item.id); return n; });
+        const verb = item.kind === 'INCOME' ? 'Received' : item.kind === 'SAVING' ? 'Saved' : 'Paid';
+        this.showToast({ message: `${verb} ${this.rupees(item.amount)} · ${item.name}`, actionLabel: 'Undo', action: () => this.undoCreate(entry) });
+        this.reloadMoney();
+      },
+      error: (err) => {
+        this.paying.update((s) => { const n = new Set(s); n.delete(item.id); return n; });
+        this.showToast({ message: this.service.errorMessage(err, `Could not save ${item.name}.`) });
+      },
+    });
+  }
+  /** Opens the full form filled in from the item, to change the amount or date first. */
+  editDue(d: DueItem): void {
+    const item = d.item;
+    const name = this.categoryById().get(item.categoryId)?.name;
+    this.sheetGoal.set(item.kind === 'SAVING' ? item.goalId : null);
+    this.sheetPrefill.set({
+      kind: item.kind, amount: item.amount, categoryId: item.categoryId, paymentMode: item.paymentMode ?? undefined, recurringId: item.id,
+      goalId: item.kind === 'SAVING' ? item.goalId : null, note: item.name !== name ? item.name : undefined, date: this.isCurrentMonth() ? this.todayIso : d.dueIso,
+    });
+    this.sheet.set({ kind: item.kind, entry: null });
+  }
+  dueWhen(d: DueItem): string {
+    const date = d.due.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    if (d.state === 'paid') return `Done · ${parseIso(d.paidBy!.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}${d.paidBy!.amount !== d.item.amount ? ' (planned ' + this.rupees(d.item.amount) + ')' : ''}`;
+    if (!this.isCurrentMonth()) return `Was due ${date}`;
+    if (d.daysAway < 0) return `Overdue · was due ${date}`;
+    if (d.daysAway === 0) return 'Due today';
+    if (d.daysAway === 1) return 'Due tomorrow';
+    return `Due ${date}`;
+  }
+
   loadGoals(): void {
     this.service.goals().subscribe({ next: (goals) => { this.goals.set(goals); writeSnapshot({ goals }); }, error: () => { /* goals panel keeps the last list */ } });
   }
@@ -333,7 +464,7 @@ export class AppComponent {
   private reloadMoney(): void { this.loadEntries(); this.loadGoals(); this.loadTrend(); }
 
   openGoal(goal: Goal | null, suggestion: Partial<GoalDraft> | null = null): void { this.goalSheet.set({ goal, suggestion }); }
-  addToGoal(goal: Goal): void { this.sheetGoal.set(goal.id); this.sheet.set({ kind: 'SAVING', entry: null }); }
+  addToGoal(goal: Goal): void { this.sheetGoal.set(goal.id); this.sheetPrefill.set(null); this.sheet.set({ kind: 'SAVING', entry: null }); }
   onGoalSaved(event: { goal: Goal; created: boolean; hidden: boolean }): void {
     this.goalSheet.set(undefined);
     this.showToast({ message: event.hidden ? `${event.goal.name} hidden` : event.created ? `Goal created · ${event.goal.icon} ${event.goal.name}` : 'Goal updated' });
@@ -353,7 +484,7 @@ export class AppComponent {
   step(by: number): void { if (by > 0 && this.isCurrentMonth()) return; this.monthOffset.update((n) => n + by); this.loadEntries(); }
   goToCurrent(): void { this.monthOffset.set(0); this.loadEntries(); }
 
-  openSheet(kind: EntryKind, entry: Entry | null = null): void { this.sheetGoal.set(null); this.sheet.set({ kind, entry }); }
+  openSheet(kind: EntryKind, entry: Entry | null = null): void { this.sheetGoal.set(null); this.sheetPrefill.set(null); this.sheet.set({ kind, entry }); }
   onQuickSaved(entry: Entry): void {
     this.quickOpen.set(false);
     // Quick expense always logs today; jump back to this month if an older one was on screen.
