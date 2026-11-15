@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api.config';
+import { CsvProblem, ImportRow } from './csv';
 import { BudgetSettings, Category, CategoryDraft, Entry, EntryDraft, Goal, GoalDraft, Recurring, RecurringDraft } from './models';
 
 @Injectable({ providedIn: 'root' })
@@ -27,6 +28,18 @@ export class BudgetService {
   goals(): Observable<Goal[]> { return this.http.get<Goal[]>(`${this.api}/goals`); }
   createGoal(goal: GoalDraft): Observable<Goal> { return this.http.post<Goal>(`${this.api}/goals`, goal); }
   updateGoal(id: number, goal: GoalDraft): Observable<Goal> { return this.http.put<Goal>(`${this.api}/goals/${id}`, goal); }
+
+  /** CSV text, oldest first; no dates = everything. Fetched (not navigated to) so the server key is sent. */
+  exportCsv(from?: string, to?: string): Observable<string> {
+    const params: Record<string, string> = {};
+    if (from) params['from'] = from;
+    if (to) params['to'] = to;
+    return this.http.get(`${this.api}/entries/export`, { params, responseType: 'text' });
+  }
+  /** dryRun: only check and count; otherwise save all new valid rows, or none. */
+  importEntries(entries: ImportRow[], dryRun: boolean): Observable<{ imported: number; duplicates: number; errors: CsvProblem[] }> {
+    return this.http.post<{ imported: number; duplicates: number; errors: CsvProblem[] }>(`${this.api}/entries/import`, { entries, dryRun });
+  }
 
   recurring(): Observable<Recurring[]> { return this.http.get<Recurring[]>(`${this.api}/recurring`); }
   createRecurring(item: RecurringDraft): Observable<Recurring> { return this.http.post<Recurring>(`${this.api}/recurring`, item); }

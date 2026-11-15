@@ -6,6 +6,10 @@ The budget month starts on salary day (the 5th by default), so "November 2026" r
 
 See [docs/PLAN.md](docs/PLAN.md) for the full plan and build steps.
 
+## Backup
+
+Settings → **Backup** downloads this month or everything as a CSV that opens in Excel. **Import CSV** loads a file back: it shows what's new, what's already there (skipped) and any problem rows before saving, so importing the same file twice is safe.
+
 ## Run locally
 
 Runs next to ShiftLedger without clashing: API on **8081**, site on **4201**.

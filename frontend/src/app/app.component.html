@@ -402,7 +402,10 @@
           }
         }
         @if (entries().length) {
-          <div class="table-footer"><span>{{ visibleEntries().length }} {{ visibleEntries().length === 1 ? 'entry' : 'entries' }}</span></div>
+          <div class="table-footer">
+            <span>{{ visibleEntries().length }} {{ visibleEntries().length === 1 ? 'entry' : 'entries' }}</span>
+            <button class="text-button" [disabled]="downloading()" (click)="download('month')"><i-lucide [img]="icons.Download"></i-lucide> Download {{ monthName() }}</button>
+          </div>
         }
       </section>
       <footer class="footer"><span>Pay yourself first <span>♥</span></span><span>MONTHLEDGER</span></footer>
@@ -473,6 +476,15 @@
         <p class="hint">@if (draft().monthStartDay === 1) { Months follow the calendar: 1st to the last day. } @else { A month runs from the {{ ordinal(draft().monthStartDay) }} to the {{ ordinal(draft().monthStartDay - 1) }} of the next month. }</p>
       </fieldset>
 
+      <span class="field-label">Backup <span>(CSV, opens in Excel)</span></span>
+      <div class="backup-row">
+        <button type="button" class="secondary-button" [disabled]="downloading() || needsKey()" (click)="download('month')"><i-lucide [img]="icons.Download"></i-lucide> {{ monthName() }}</button>
+        <button type="button" class="secondary-button" [disabled]="downloading() || needsKey()" (click)="download('all')"><i-lucide [img]="icons.Download"></i-lucide> Everything</button>
+        <label class="secondary-button import-button" [class.disabled]="needsKey()" for="import-csv"><i-lucide [img]="icons.Upload"></i-lucide> Import CSV</label>
+        <input id="import-csv" class="sr-only" type="file" accept=".csv,text/csv" [disabled]="needsKey()" (change)="onImportFile($event)">
+      </div>
+      <p class="hint">Import adds what's new and skips anything already here, so loading the same file twice is safe.</p>
+
       <span class="field-label">Theme <span>(this device)</span></span>
       <div class="segmented segmented-full">
         <button [class.selected]="theme() === 'system'" (click)="setTheme('system')">Auto</button>
@@ -483,6 +495,39 @@
       @if (settingsError()) { <p class="form-error" role="alert">{{ settingsError() }}</p> }
       <div class="modal-actions">
         <button class="primary-button" (click)="saveSettings()" [disabled]="savingSettings()">{{ savingSettings() ? 'Saving…' : 'Done' }} <i-lucide [img]="icons.Check"></i-lucide></button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (importPreview(); as p) {
+  <div class="modal-backdrop" (click)="cancelImport()">
+    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" (click)="$event.stopPropagation()" (keydown.escape)="cancelImport()">
+      <div class="modal-head">
+        <span class="modal-icon modal-income"><i-lucide [img]="icons.Upload"></i-lucide></span>
+        <div><h2 id="import-title">Import CSV</h2><p class="modal-subtitle">Entries already here stay as they are</p></div>
+        <button class="icon-button modal-close" aria-label="Close" (click)="cancelImport()" [disabled]="p.writing"><i-lucide [img]="icons.X"></i-lucide></button>
+      </div>
+      @if (p.checking) {
+        <p class="import-summary">Checking {{ p.rows.length }} {{ p.rows.length === 1 ? 'row' : 'rows' }}…</p>
+      } @else {
+        <p class="import-summary">
+          <strong>{{ p.imported }} new</strong> · {{ p.duplicates }} already here (skipped)@if (p.problems.length) { · <span class="import-bad">{{ p.problems.length }} {{ p.problems.length === 1 ? 'problem' : 'problems' }}</span> }
+        </p>
+        @if (p.problems.length) {
+          <ul class="import-problems">
+            @for (x of p.problems.slice(0, 20); track $index) { <li>Row {{ x.row }}: {{ x.message }}</li> }
+            @if (p.problems.length > 20) { <li>…and {{ p.problems.length - 20 }} more</li> }
+          </ul>
+          <p class="hint">Rows with problems are left out. Fix them in the file and import again; the rest won't be added twice.</p>
+        }
+      }
+      @if (p.failed) { <p class="form-error" role="alert">{{ p.failed }}</p> }
+      <div class="modal-actions">
+        <button class="secondary-button" (click)="cancelImport()" [disabled]="p.writing">{{ p.imported > 0 ? 'Cancel' : 'Close' }}</button>
+        @if (p.imported > 0) {
+          <button class="primary-button" (click)="confirmImport()" [disabled]="p.checking || p.writing">{{ p.writing ? 'Importing…' : 'Import ' + p.imported + (p.imported === 1 ? ' entry' : ' entries') }} <i-lucide [img]="icons.Check"></i-lucide></button>
+        }
       </div>
     </section>
   </div>

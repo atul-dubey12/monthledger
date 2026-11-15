@@ -5,7 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import {
   LucideAngularModule, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank,
-  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag, Repeat, Lightbulb, CalendarClock, CircleCheck
+  Settings2, ShieldCheck, Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag, Repeat, Lightbulb, CalendarClock, CircleCheck, Download, Upload
 } from 'lucide-angular';
 import { NetworkStatus, readApiKey, saveApiKey } from './api.interceptor';
 import { BudgetService } from './budget.service';
@@ -17,10 +17,12 @@ import { QuickExpenseComponent } from './quick-expense.component';
 import { CategoriesSheetComponent } from './categories-sheet.component';
 import { GoalSheetComponent } from './goal-sheet.component';
 import { RecurringSheetComponent } from './recurring-sheet.component';
+import { CsvProblem, ImportRow, readBackup } from './csv';
 import { Snapshot, clearSnapshot, readSnapshot, writeSnapshot } from './cache';
 
 type Theme = 'system' | 'light' | 'dark';
 interface Toast { message: string; actionLabel?: string; action?: () => void; }
+interface ImportPreview { rows: ImportRow[]; imported: number; duplicates: number; problems: CsvProblem[]; checking: boolean; writing: boolean; failed: string; }
 type ActivityFilter = 'ALL' | 'INCOME' | 'NEED' | 'WANT' | 'SAVING';
 
 const THEME_KEY = 'monthledger.theme';
@@ -35,7 +37,7 @@ const DEFAULT_SETTINGS: BudgetSettings = { name: '', needsPercent: 50, wantsPerc
 export class AppComponent {
   readonly icons = {
     ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank, Settings2, ShieldCheck,
-    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag, Repeat, Lightbulb, CalendarClock, CircleCheck
+    Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag, Repeat, Lightbulb, CalendarClock, CircleCheck, Download, Upload
   };
   readonly buckets = BUCKETS;
   private readonly service = inject(BudgetService);
@@ -275,6 +277,10 @@ export class AppComponent {
   readonly sheetGoal = signal<number | null>(null);
   readonly categoriesOpen = signal(false);
   readonly recurringOpen = signal(false);
+  readonly importPreview = signal<ImportPreview | null>(null);
+  /** Ignores answers for an import that was cancelled or replaced. */
+  private importToken = 0;
+  readonly downloading = signal(false);
   /** Prefill for the entry sheet when it opens from a due item. */
   readonly sheetPrefill = signal<Partial<EntryDraft> | null>(null);
   /** Due items being paid right now, to disable their button. */
@@ -393,6 +399,79 @@ export class AppComponent {
       next: (entries) => { this.remember(prev.key, entries); if (this.entriesFor === key) this.previousEntries.set(entries); },
       error: () => { /* the comparison card just stays hidden */ },
     });
+  }
+
+  // ── Backup ────────────────────────────────────────────────
+  download(scope: 'month' | 'all'): void {
+    if (this.downloading()) return;
+    const m = this.month();
+    const last = new Date(m.end.getFullYear(), m.end.getMonth(), m.end.getDate() - 1);
+    const name = scope === 'all' ? `monthledger-all-${this.todayIso}.csv` : `monthledger-${m.key}-${isoDate(m.start)}-to-${isoDate(last)}.csv`;
+    this.downloading.set(true);
+    (scope === 'all' ? this.service.exportCsv() : this.service.exportCsv(isoDate(m.start), isoDate(last))).subscribe({
+      next: (csv) => {
+        this.downloading.set(false);
+        const link = document.createElement('a');
+        // Browsers drop the server's byte-order mark when reading text; Excel needs it to show ₹ and emoji.
+        const withBom = csv.charCodeAt(0) === 0xFEFF ? csv : '\uFEFF' + csv;
+        link.href = URL.createObjectURL(new Blob([withBom], { type: 'text/csv;charset=utf-8' }));
+        link.download = name;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        this.showToast({ message: `Downloaded ${name}` });
+      },
+      error: (err) => { this.downloading.set(false); this.showToast({ message: this.service.errorMessage(err, 'Could not download the backup.') }); },
+    });
+  }
+
+  onImportFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';   // choosing the same file again still triggers a change
+    if (!file) return;
+    const token = ++this.importToken;
+    file.text().then((text) => {
+      if (token !== this.importToken) return;
+      const { rows, problems } = readBackup(text, this.categories(), this.goals());
+      const base: ImportPreview = { rows, imported: 0, duplicates: 0, problems, checking: rows.length > 0, writing: false, failed: '' };
+      this.importPreview.set(base);
+      if (!rows.length) return;
+      this.service.importEntries(rows, true).subscribe({
+        next: (r) => {
+          if (token !== this.importToken) return;
+          const all = [...problems, ...r.errors].sort((a, b) => a.row - b.row);
+          this.importPreview.set({ ...base, imported: r.imported, duplicates: r.duplicates, problems: all, checking: false });
+        },
+        error: (err) => {
+          if (token !== this.importToken) return;
+          this.importPreview.set({ ...base, checking: false, failed: this.service.errorMessage(err, 'Could not check this file. Try again.') });
+        },
+      });
+    }).catch(() => this.showToast({ message: 'Could not read that file.' }));
+  }
+
+  confirmImport(): void {
+    const p = this.importPreview();
+    if (!p || p.checking || p.writing || p.imported < 1) return;
+    const token = this.importToken;
+    this.importPreview.set({ ...p, writing: true, failed: '' });
+    this.service.importEntries(p.rows, false).subscribe({
+      next: (r) => {
+        if (token !== this.importToken) return;
+        this.importPreview.set(null);
+        this.showToast({ message: `Imported ${r.imported} ${r.imported === 1 ? 'entry' : 'entries'}${r.duplicates ? ` · ${r.duplicates} already there` : ''}` });
+        this.reloadMoney();
+      },
+      error: (err) => {
+        if (token !== this.importToken) return;
+        this.importPreview.set({ ...p, writing: false, failed: this.service.errorMessage(err, 'Could not import. Nothing was saved — tap Import to try again.') });
+      },
+    });
+  }
+  cancelImport(): void {
+    if (this.importPreview()?.writing) return;
+    this.importToken++;
+    this.importPreview.set(null);
   }
 
   loadRecurring(): void {
