@@ -3,7 +3,7 @@ import { Injectable, signal, inject } from '@angular/core';
 import { finalize, timeout } from 'rxjs';
 
 const KEY_STORAGE = 'monthledger.apiKey';
-/** A free Render service can take most of a minute to wake up, so give requests well over that. */
+/** Allow enough time for imports and for the existing Render deployment during migration. */
 const REQUEST_TIMEOUT_MS = 70_000;
 const SLOW_AFTER_MS = 3_000;
 
@@ -14,7 +14,7 @@ export function saveApiKey(key: string): void {
   try { key ? localStorage.setItem(KEY_STORAGE, key) : localStorage.removeItem(KEY_STORAGE); } catch { /* storage blocked */ }
 }
 
-/** Tracks whether any request has been waiting long enough to show the "waking up the server" banner. */
+/** Tracks whether any request has been waiting long enough to show the connection banner. */
 @Injectable({ providedIn: 'root' })
 export class NetworkStatus {
   readonly slow = signal(false);

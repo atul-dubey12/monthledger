@@ -30,3 +30,9 @@ Tests: `cd backend && mvn test`.
 - **Backend:** Spring Boot 3.5, JPA, Flyway. The same migrations run on local H2 (Postgres mode) and on Neon Postgres.
 - **Hosting:** API on Render (Docker, `render.yaml`) + Postgres on Neon (its own database, separate from ShiftLedger). Site on GitHub Pages at https://atul-dubey12.github.io/monthledger/ (`cd frontend && npm run deploy`).
 - **Access:** single user. Every `/api` request except `/api/health` needs the `X-Api-Key` header in production; the key is entered once per device in Settings.
+
+## Next.js / Vercel migration
+
+The replacement API is in [`backend-next/`](backend-next/README.md). It preserves the existing PostgreSQL schema and Angular API contracts. Both applications can deploy from this repository as separate Vercel projects: root `backend-next` for the API and root `frontend` for Angular.
+
+See the [migration and deployment instructions](backend-next/README.md) for environment variables, local development, database checks, tests and cutover. The existing Java/Render and GitHub Pages configurations remain available during migration.

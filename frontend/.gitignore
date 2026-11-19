@@ -1,0 +1,5 @@
+# Build-generated public API configuration
+src/app/api.config.vercel.ts
+.vercel/
+.env*
+!.env.example
