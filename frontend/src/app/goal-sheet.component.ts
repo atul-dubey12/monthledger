@@ -1,3 +1,4 @@
+import { DialogFocusDirective } from './dialog-focus.directive';
 import { Component, EventEmitter, HostListener, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, Check, Target, X } from 'lucide-angular';
@@ -9,10 +10,10 @@ import { budgetMonthFor, isoDate, monthsBetween } from './month';
 /** Create or edit one savings goal, with a live "₹X a month" preview. */
 @Component({
   selector: 'app-goal-sheet',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [DialogFocusDirective, FormsModule, LucideAngularModule],
   template: `
 <div class="modal-backdrop" (click)="closed.emit()">
-  <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="goal-title" (click)="$event.stopPropagation()">
+  <section class="entry-modal" appDialogFocus role="dialog" aria-modal="true" aria-labelledby="goal-title" (click)="$event.stopPropagation()">
     <div class="modal-head">
       <span class="modal-icon" data-tab="SAVING"><i-lucide [img]="icons.Target"></i-lucide></span>
       <div><h2 id="goal-title">{{ goal ? 'Edit goal' : 'New savings goal' }}</h2><p class="modal-subtitle">Something worth saving for</p></div>

@@ -1,6 +1,7 @@
+import { DialogFocusDirective } from './dialog-focus.directive';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, HostListener } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import {
@@ -31,7 +32,7 @@ const DEFAULT_SETTINGS: BudgetSettings = { name: '', needsPercent: 50, wantsPerc
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent, QuickExpenseComponent, CategoriesSheetComponent, GoalSheetComponent, RecurringSheetComponent],
+  imports: [DialogFocusDirective, FormsModule, CurrencyPipe, DatePipe, LucideAngularModule, EntrySheetComponent, QuickExpenseComponent, CategoriesSheetComponent, GoalSheetComponent, RecurringSheetComponent],
   templateUrl: './app.component.html'
 })
 export class AppComponent {
@@ -39,6 +40,12 @@ export class AppComponent {
     ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight, LayoutDashboard, Moon, PiggyBank, Settings2, ShieldCheck,
     Sun, Target, Timer, Wallet, X, CircleAlert, Receipt, Plus, Search, Trash2, Pencil, Undo2, Zap, Tags, TrendingUp, TrendingDown, BarChart3, Flag, Repeat, Lightbulb, CalendarClock, CircleCheck, Download, Upload
   };
+  readonly sections = [
+    { id: 'top', label: 'Overview' }, { id: 'plan', label: 'Budget plan' },
+    { id: 'goals', label: 'Savings goals' }, { id: 'activity', label: 'Transactions' },
+  ];
+  readonly activeSection = signal('top');
+  readonly sectionLabel = computed(() => this.sections.find(s => s.id === this.activeSection())?.label ?? 'Overview');
   readonly buckets = BUCKETS;
   private readonly service = inject(BudgetService);
   readonly slowNetwork = inject(NetworkStatus).slow;
@@ -169,8 +176,9 @@ export class AppComponent {
   readonly budgetAlerts = computed(() => this.budgets().filter((b) => b.level !== 'ok').length);
 
   // ── Chart ─────────────────────────────────────────────────
-  readonly chartMode = signal<'WANT' | 'ALL'>('WANT');
+  readonly chartMode = signal<'WANT' | 'ALL'>('ALL');
   readonly chartDays = computed(() => dailySpending(this.entries(), this.month().start, this.month().end, this.categoryById()));
+  readonly chartHasData = computed(() => this.chartDays().some(d => this.chartMode() === 'WANT' ? d.wants > 0 : d.needs > 0 || d.wants > 0));
   readonly chartMax = computed(() => Math.max(1, ...this.chartDays().map((d) => this.chartMode() === 'WANT' ? d.wants : d.needs + d.wants)));
   readonly hoveredDay = signal<string | null>(null);
   readonly hoveredBar = computed(() => this.chartDays().find((d) => d.iso === this.hoveredDay()) ?? null);
@@ -692,7 +700,17 @@ export class AppComponent {
   }
   setTheme(theme: Theme): void { this.theme.set(theme); }
   toggleTheme(): void { this.theme.set(this.isDark() ? 'light' : 'dark'); }
-  scrollTo(id: string): void { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  scrollTo(id: string): void {
+    this.activeSection.set(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  }
+  @HostListener('window:scroll') updateActiveSection(): void {
+    const section = [...this.sections].sort((a, b) =>
+      (document.getElementById(a.id)?.offsetTop ?? 0) - (document.getElementById(b.id)?.offsetTop ?? 0)
+    ).filter(s => (document.getElementById(s.id)?.getBoundingClientRect().top ?? Infinity) <= 160).pop();
+    this.activeSection.set(section?.id ?? 'top');
+  }
+  clearFilters(): void { this.search.set(''); this.filter.set('ALL'); this.dayFilter.set(null); }
 
   showToast(toast: Toast): void {
     clearTimeout(this.toastTimer);

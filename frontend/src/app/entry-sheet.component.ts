@@ -1,3 +1,4 @@
+import { DialogFocusDirective } from './dialog-focus.directive';
 import { Component, EventEmitter, HostListener, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, ArrowDownLeft, ArrowUpRight, Check, PiggyBank, Plus, X } from 'lucide-angular';
@@ -13,10 +14,10 @@ const LAST_GOAL_KEY = 'monthledger.lastGoal';
 
 @Component({
   selector: 'app-entry-sheet',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [DialogFocusDirective, FormsModule, LucideAngularModule],
   template: `
 <div class="modal-backdrop" (click)="closed.emit()">
-  <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" (click)="$event.stopPropagation()">
+  <section class="entry-modal" appDialogFocus role="dialog" aria-modal="true" aria-labelledby="entry-title" (click)="$event.stopPropagation()">
     <div class="modal-head">
       <span class="modal-icon" [attr.data-tab]="tab()">
         <i-lucide [img]="tab() === 'INCOME' ? icons.ArrowDownLeft : tab() === 'SAVING' ? icons.PiggyBank : icons.ArrowUpRight"></i-lucide>

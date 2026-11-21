@@ -1,21 +1,24 @@
+<a class="skip-link" href="#dashboard">Skip to dashboard</a>
 <div class="app-shell">
   <aside class="sidebar">
     <a class="brand" href="#top" aria-label="MonthLedger home">
       <span class="brand-mark"><i-lucide [img]="icons.Wallet"></i-lucide></span>
-      <span>month<span class="brand-light">ledger</span><small>YOUR SALARY, PLACED</small></span>
+      <span>month<span class="brand-light">ledger</span><small>MAKE ROOM FOR MORE</small></span>
     </a>
+    <div class="nav-label">WORKSPACE</div>
     <nav aria-label="Sections">
-      <button class="nav-item" (click)="scrollTo('top')"><i-lucide [img]="icons.LayoutDashboard"></i-lucide><span>Overview</span></button>
-      <button class="nav-item" (click)="scrollTo('plan')"><i-lucide [img]="icons.Target"></i-lucide><span>Budget plan</span></button>
-      <button class="nav-item" (click)="scrollTo('goals')"><i-lucide [img]="icons.Flag"></i-lucide><span>Savings goals</span></button>
-      <button class="nav-item" (click)="scrollTo('activity')"><i-lucide [img]="icons.Receipt"></i-lucide><span>Activity</span></button>
-      <button class="nav-item" (click)="recurringOpen.set(true)"><i-lucide [img]="icons.Repeat"></i-lucide><span>Monthly items</span></button>
-      <button class="nav-item" (click)="categoriesOpen.set(true)"><i-lucide [img]="icons.Tags"></i-lucide><span>Categories & limits</span></button>
-      <button class="nav-item" (click)="openSettings()"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
+      <button class="nav-item" [class.active]="activeSection() === 'top'" [attr.aria-current]="activeSection() === 'top' ? 'location' : null" (click)="scrollTo('top')" aria-label="Overview"><i-lucide [img]="icons.LayoutDashboard"></i-lucide><span>Overview</span></button>
+      <button class="nav-item" [class.active]="activeSection() === 'plan'" [attr.aria-current]="activeSection() === 'plan' ? 'location' : null" (click)="scrollTo('plan')" aria-label="Budget plan"><i-lucide [img]="icons.Target"></i-lucide><span>Budget plan</span></button>
+      <button class="nav-item" [class.active]="activeSection() === 'goals'" [attr.aria-current]="activeSection() === 'goals' ? 'location' : null" (click)="scrollTo('goals')" aria-label="Savings goals"><i-lucide [img]="icons.Flag"></i-lucide><span>Savings goals</span></button>
+      <button class="nav-item" [class.active]="activeSection() === 'activity'" [attr.aria-current]="activeSection() === 'activity' ? 'location' : null" (click)="scrollTo('activity')" aria-label="Transactions"><i-lucide [img]="icons.Receipt"></i-lucide><span>Transactions</span></button>
+      <button class="nav-item" (click)="recurringOpen.set(true)" aria-label="Monthly items"><i-lucide [img]="icons.Repeat"></i-lucide><span>Monthly items</span></button>
+      <button class="nav-item" (click)="categoriesOpen.set(true)" aria-label="Categories & limits"><i-lucide [img]="icons.Tags"></i-lucide><span>Categories & limits</span></button>
+      <button class="nav-item" (click)="openSettings()" aria-label="Settings"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
     </nav>
     <div class="side-spacer"></div>
     <div class="goal-card">
       <div class="goal-card-head"><span class="note-icon"><i-lucide [img]="icons.PiggyBank"></i-lucide></span><strong>Your split</strong></div>
+      <div class="split-track" aria-hidden="true"><span [style.flex]="settings().needsPercent"></span><span [style.flex]="settings().wantsPercent"></span><span [style.flex]="settings().savingsPercent"></span></div>
       <div class="goal-card-value">{{ settings().needsPercent }} / {{ settings().wantsPercent }} / {{ settings().savingsPercent }}</div>
       <small>Needs · Wants · Savings</small>
     </div>
@@ -29,14 +32,22 @@
   <main id="top" class="main-content">
     <header class="topbar">
       <div class="mobile-brand"><span class="brand-mark"><i-lucide [img]="icons.Wallet"></i-lucide></span>monthledger</div>
-      <div class="breadcrumb">Budget <span>/</span> <strong>Overview</strong></div>
+      <div class="breadcrumb">Your workspace <span>/</span> <strong>{{ sectionLabel() }}</strong></div>
       <div class="top-actions">
+        <span class="workspace-tag"><i-lucide [img]="icons.Wallet"></i-lucide> Personal budget</span>
         <button class="icon-button" (click)="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode"><i-lucide [img]="isDark() ? icons.Sun : icons.Moon"></i-lucide></button>
         <button class="icon-button" (click)="openSettings()" aria-label="Settings" title="Settings"><i-lucide [img]="icons.Settings2"></i-lucide></button>
       </div>
     </header>
 
-    <div class="content-wrap">
+    <div id="dashboard" class="content-wrap" tabindex="-1">
+      <nav class="mobile-sections" aria-label="Dashboard sections">
+        @for (section of sections; track section.id) {
+          <button [class.active]="activeSection() === section.id" [attr.aria-current]="activeSection() === section.id ? 'location' : null" (click)="scrollTo(section.id)">{{ section.label }}</button>
+        }
+        <button (click)="recurringOpen.set(true)">Monthly items</button>
+        <button (click)="categoriesOpen.set(true)">Categories</button>
+      </nav>
       @if (savedCopyFrom() && !error() && !needsKey()) {
         <div class="connection-banner wake-banner" role="status"><i-lucide [img]="icons.Timer"></i-lucide><span>Showing your saved copy from {{ savedCopyLabel() }} · connecting to the server@if (slowNetwork()) { — this is taking longer than usual. }</span></div>
       } @else if (slowNetwork()) { <div class="connection-banner wake-banner" role="status"><i-lucide [img]="icons.Timer"></i-lucide>Connecting to the server… this is taking longer than usual.</div> }
@@ -45,13 +56,14 @@
 
       <section class="welcome-row">
         <div>
+          <span class="eyebrow">A LITTLE CLARITY. A LOT MORE CONTROL.</span>
           <h1>{{ greeting() }}</h1>
-          <p class="subtitle">Salary in — see where every rupee goes.</p>
+          <p class="subtitle">Your money, at a glance. Make this month count.</p>
         </div>
         <div class="welcome-actions">
           <button class="secondary-button" (click)="openSheet('INCOME')"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide> Add income</button>
           <button class="secondary-button" (click)="openSheet('SAVING')"><i-lucide [img]="icons.PiggyBank"></i-lucide> Add saving</button>
-          <button class="secondary-button" (click)="openSheet('EXPENSE')"><i-lucide [img]="icons.Plus"></i-lucide> Add expense</button>
+          <button class="secondary-button detailed-expense" (click)="openSheet('EXPENSE')"><i-lucide [img]="icons.Plus"></i-lucide> Add expense</button>
           <button class="primary-button quick-button" (click)="quickOpen.set(true)"><i-lucide [img]="icons.Zap"></i-lucide> Quick expense</button>
         </div>
       </section>
@@ -76,23 +88,23 @@
         </div>
       }
 
-      <section class="stats-grid stats-grid-4" aria-label="Month summary">
+      <section class="stats-grid stats-grid-4" aria-label="Month summary" [attr.aria-busy]="loading() || entriesLoading()" [class.summary-loading]="(loading() || entriesLoading()) && !entries().length">
         <article class="stat-card">
-          <div class="stat-top"><span class="stat-icon income-icon"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide></span><span class="stat-label">Income</span></div>
+          <div class="stat-top"><span class="stat-icon income-icon"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide></span><span class="stat-label">Total income</span></div>
           <div class="stat-value">{{ totals().income | currency:'INR':'symbol':'1.0-0' }}</div>
           <div class="stat-sub">@if (totals().income) { Salary and everything else } @else { <button class="text-button" (click)="openSheet('INCOME')">Add your salary <i-lucide [img]="icons.Plus"></i-lucide></button> }</div>
         </article>
         <article class="stat-card">
-          <div class="stat-top"><span class="stat-icon expense-icon"><i-lucide [img]="icons.ArrowUpRight"></i-lucide></span><span class="stat-label">Spent</span></div>
+          <div class="stat-top"><span class="stat-icon expense-icon"><i-lucide [img]="icons.ArrowUpRight"></i-lucide></span><span class="stat-label">Total spent</span></div>
           <div class="stat-value">{{ totals().spent | currency:'INR':'symbol':'1.0-0' }}</div>
           <div class="stat-sub">Needs {{ totals().needs | currency:'INR':'symbol':'1.0-0' }} · Wants {{ totals().wants | currency:'INR':'symbol':'1.0-0' }}</div>
         </article>
         <article class="stat-card">
-          <div class="stat-top"><span class="stat-icon takehome-icon"><i-lucide [img]="icons.PiggyBank"></i-lucide></span><span class="stat-label">Saved</span></div>
+          <div class="stat-top"><span class="stat-icon takehome-icon"><i-lucide [img]="icons.PiggyBank"></i-lucide></span><span class="stat-label">Set aside</span></div>
           <div class="stat-value" [class.negative]="totals().saved < 0">{{ totals().saved | currency:'INR':'symbol':'1.0-0' }}</div>
           <div class="stat-sub">@if (totals().savingsRate !== null) { {{ totals().savingsRate }}% of income · target {{ settings().savingsPercent }}% } @else { Target: {{ settings().savingsPercent }}% of income }</div>
         </article>
-        <article class="stat-card left-card" [class.left-over]="totals().left < 0">
+        <article class="stat-card left-card" [class.left-over]="leftAfterBills() < 0">
           <div class="stat-top"><span class="stat-icon left-icon"><i-lucide [img]="icons.Wallet"></i-lucide></span><span class="stat-label">Left to spend</span></div>
           <div class="stat-value" [class.negative]="leftAfterBills() < 0">{{ leftAfterBills() | currency:'INR':'symbol':'1.0-0' }}</div>
           <div class="stat-sub">
@@ -103,6 +115,49 @@
           </div>
         </article>
       </section>
+
+      <section class="panel chart-panel" aria-labelledby="chart-title">
+        <div class="panel-heading">
+          <div><h2 id="chart-title">Daily spending</h2><p>{{ monthRange() || monthName() }} · tap a day to see its entries</p></div>
+          <div class="segmented" role="group" aria-label="Chart shows">
+            <button [attr.aria-pressed]="chartMode() === 'WANT'" [class.selected]="chartMode() === 'WANT'" (click)="chartMode.set('WANT')">Wants</button>
+            <button [attr.aria-pressed]="chartMode() === 'ALL'" [class.selected]="chartMode() === 'ALL'" (click)="chartMode.set('ALL')">All spending</button>
+          </div>
+        </div>
+        @if (!loading() && !entriesLoading() && !error() && !needsKey() && !chartHasData()) {
+          <div class="chart-empty"><span class="empty-icon"><i-lucide [img]="icons.BarChart3"></i-lucide></span><div><strong>No spending to show yet</strong><p>Expenses in this view will appear here as you log them.</p></div><button class="secondary-button" (click)="openSheet('EXPENSE')">Add expense</button></div>
+        }
+        <div class="chart chart-dense" (mouseleave)="hoveredDay.set(null)">
+          @for (d of chartDays(); track d.iso; let i = $index) {
+            <button class="chart-day" [class.is-today]="d.iso === todayIso" [class.is-selected]="d.iso === dayFilter()"
+                    (mouseenter)="hoveredDay.set(d.iso)" (focus)="hoveredDay.set(d.iso)" (blur)="hoveredDay.set(null)" (click)="pickDay(d.iso)"
+                    [attr.aria-label]="(d.date | date:'EEE d MMM') + ': needs ₹' + d.needs + ', wants ₹' + d.wants">
+              <span class="bars">
+                @if (chartMode() === 'ALL') { <span class="bar bar-need" [style.height.%]="barHeight(d.needs)"></span> }
+                <span class="bar bar-want" [style.height.%]="barHeight(d.wants)"></span>
+              </span>
+              <span class="day-label">{{ showDayLabel(d.date, i) ? d.date.getDate() : '' }}</span>
+            </button>
+          }
+          @if (hoveredBar(); as h) {
+            <div class="chart-tooltip" role="status">
+              <strong>{{ h.date | date:'EEE, d MMM' }}</strong>
+              <span><i class="swatch swatch-need"></i>Needs <b>{{ h.needs | currency:'INR':'symbol':'1.0-0' }}</b></span>
+              <span><i class="swatch swatch-want"></i>Wants <b>{{ h.wants | currency:'INR':'symbol':'1.0-0' }}</b></span>
+            </div>
+          }
+        </div>
+        <div class="legend chart-legend">
+          @if (chartMode() === 'ALL') { <span><i class="swatch swatch-need"></i>Needs</span> }
+          <span><i class="swatch swatch-want"></i>Wants</span>
+        </div>
+        <table class="sr-only">
+          <caption>Daily spending</caption>
+          <tr><th>Day</th><th>Needs</th><th>Wants</th></tr>
+          @for (d of chartDays(); track d.iso) { <tr><td>{{ d.date | date:'EEE d MMM' }}</td><td>{{ d.needs }}</td><td>{{ d.wants }}</td></tr> }
+        </table>
+      </section>
+
 
       <section class="middle-grid due-grid">
         <article class="panel due-panel" aria-labelledby="due-title">
@@ -144,44 +199,6 @@
         </article>
       </section>
 
-      <section class="panel chart-panel" aria-labelledby="chart-title">
-        <div class="panel-heading">
-          <div><h2 id="chart-title">Daily spending</h2><p>{{ monthRange() || monthName() }} · tap a day to see its entries</p></div>
-          <div class="segmented" role="tablist" aria-label="Chart shows">
-            <button role="tab" [attr.aria-selected]="chartMode() === 'WANT'" [class.selected]="chartMode() === 'WANT'" (click)="chartMode.set('WANT')">Wants</button>
-            <button role="tab" [attr.aria-selected]="chartMode() === 'ALL'" [class.selected]="chartMode() === 'ALL'" (click)="chartMode.set('ALL')">All spending</button>
-          </div>
-        </div>
-        <div class="chart chart-dense" (mouseleave)="hoveredDay.set(null)">
-          @for (d of chartDays(); track d.iso; let i = $index) {
-            <button class="chart-day" [class.is-today]="d.iso === todayIso" [class.is-selected]="d.iso === dayFilter()"
-                    (mouseenter)="hoveredDay.set(d.iso)" (focus)="hoveredDay.set(d.iso)" (blur)="hoveredDay.set(null)" (click)="pickDay(d.iso)"
-                    [attr.aria-label]="(d.date | date:'EEE d MMM') + ': needs ₹' + d.needs + ', wants ₹' + d.wants">
-              <span class="bars">
-                @if (chartMode() === 'ALL') { <span class="bar bar-need" [style.height.%]="barHeight(d.needs)"></span> }
-                <span class="bar bar-want" [style.height.%]="barHeight(d.wants)"></span>
-              </span>
-              <span class="day-label">{{ showDayLabel(d.date, i) ? d.date.getDate() : '' }}</span>
-            </button>
-          }
-          @if (hoveredBar(); as h) {
-            <div class="chart-tooltip" role="status">
-              <strong>{{ h.date | date:'EEE, d MMM' }}</strong>
-              <span><i class="swatch swatch-need"></i>Needs <b>{{ h.needs | currency:'INR':'symbol':'1.0-0' }}</b></span>
-              <span><i class="swatch swatch-want"></i>Wants <b>{{ h.wants | currency:'INR':'symbol':'1.0-0' }}</b></span>
-            </div>
-          }
-        </div>
-        <div class="legend chart-legend">
-          @if (chartMode() === 'ALL') { <span><i class="swatch swatch-need"></i>Needs</span> }
-          <span><i class="swatch swatch-want"></i>Wants</span>
-        </div>
-        <table class="sr-only">
-          <caption>Daily spending</caption>
-          <tr><th>Day</th><th>Needs</th><th>Wants</th></tr>
-          @for (d of chartDays(); track d.iso) { <tr><td>{{ d.date | date:'EEE d MMM' }}</td><td>{{ d.needs }}</td><td>{{ d.wants }}</td></tr> }
-        </table>
-      </section>
 
       <section class="middle-grid">
         <article class="panel watch-panel" aria-labelledby="watch-title">
@@ -354,15 +371,15 @@
 
       <section id="activity" class="panel activity-panel">
         <div class="panel-heading activity-heading">
-          <div><h2>Activity</h2><p>{{ monthName() }} · tap an entry to edit it</p></div>
+          <div><h2>Transactions</h2><p>{{ monthName() }} · tap an entry to edit it</p></div>
           <div class="activity-actions">
             <label class="search-box"><i-lucide [img]="icons.Search"></i-lucide><input type="search" placeholder="Search notes, amounts…" aria-label="Search entries" [ngModel]="search()" (ngModelChange)="search.set($event)"></label>
             <div class="filter-tabs" role="group" aria-label="Show">
-              <button [class.selected]="filter() === 'ALL'" (click)="filter.set('ALL')">All</button>
-              <button [class.selected]="filter() === 'INCOME'" (click)="filter.set('INCOME')">Income</button>
-              <button [class.selected]="filter() === 'NEED'" (click)="filter.set('NEED')">Needs</button>
-              <button [class.selected]="filter() === 'WANT'" (click)="filter.set('WANT')">Wants</button>
-              <button [class.selected]="filter() === 'SAVING'" (click)="filter.set('SAVING')">Savings</button>
+              <button [class.selected]="filter() === 'ALL'" [attr.aria-pressed]="filter() === 'ALL'" (click)="filter.set('ALL')">All</button>
+              <button [class.selected]="filter() === 'INCOME'" [attr.aria-pressed]="filter() === 'INCOME'" (click)="filter.set('INCOME')">Income</button>
+              <button [class.selected]="filter() === 'NEED'" [attr.aria-pressed]="filter() === 'NEED'" (click)="filter.set('NEED')">Needs</button>
+              <button [class.selected]="filter() === 'WANT'" [attr.aria-pressed]="filter() === 'WANT'" (click)="filter.set('WANT')">Wants</button>
+              <button [class.selected]="filter() === 'SAVING'" [attr.aria-pressed]="filter() === 'SAVING'" (click)="filter.set('SAVING')">Savings</button>
             </div>
           </div>
         </div>
@@ -392,7 +409,7 @@
             <div class="empty-state">
               <span class="empty-icon"><i-lucide [img]="icons.Receipt"></i-lucide></span>
               @if (search() || filter() !== 'ALL' || dayFilter()) {
-                <strong>No matches</strong><p>Nothing in {{ monthName() }} matches this filter.</p>
+                <strong>No matching transactions</strong><p>Try a different search or clear your filters to see all entries.</p><button class="secondary-button" (click)="clearFilters()">Clear filters</button>
               } @else {
                 <strong>No entries for {{ monthName() }} yet</strong>
                 <p>Start with your salary, then log spending as it happens.</p>
@@ -438,7 +455,7 @@
 
 @if (settingsOpen()) {
   <div class="modal-backdrop" (click)="closeSettings()">
-    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="closeSettings()">
+    <section class="entry-modal" appDialogFocus role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="closeSettings()">
       <div class="modal-head">
         <span class="modal-icon modal-income"><i-lucide [img]="icons.Settings2"></i-lucide></span>
         <div><h2 id="settings-title">Settings</h2><p class="modal-subtitle">Budget settings sync to all your devices</p></div>
@@ -502,7 +519,7 @@
 
 @if (importPreview(); as p) {
   <div class="modal-backdrop" (click)="cancelImport()">
-    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" (click)="$event.stopPropagation()" (keydown.escape)="cancelImport()">
+    <section class="entry-modal" appDialogFocus role="dialog" aria-modal="true" aria-labelledby="import-title" (click)="$event.stopPropagation()" (keydown.escape)="cancelImport()">
       <div class="modal-head">
         <span class="modal-icon modal-income"><i-lucide [img]="icons.Upload"></i-lucide></span>
         <div><h2 id="import-title">Import CSV</h2><p class="modal-subtitle">Entries already here stay as they are</p></div>

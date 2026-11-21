@@ -1,3 +1,4 @@
+import { DialogFocusDirective } from './dialog-focus.directive';
 import { Component, EventEmitter, HostListener, Input, Output, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -15,10 +16,10 @@ const KINDS: { key: Kind; label: string }[] = [
 /** Add, edit or stop the things that happen every month. */
 @Component({
   selector: 'app-recurring-sheet',
-  imports: [FormsModule, CurrencyPipe, NgTemplateOutlet, LucideAngularModule],
+  imports: [DialogFocusDirective, FormsModule, CurrencyPipe, NgTemplateOutlet, LucideAngularModule],
   template: `
 <div class="modal-backdrop" (click)="closed.emit()">
-  <section class="entry-modal categories-sheet" role="dialog" aria-modal="true" aria-labelledby="rec-title" (click)="$event.stopPropagation()">
+  <section class="entry-modal categories-sheet" appDialogFocus role="dialog" aria-modal="true" aria-labelledby="rec-title" (click)="$event.stopPropagation()">
     <div class="modal-head">
       <span class="modal-icon modal-income"><i-lucide [img]="icons.Repeat"></i-lucide></span>
       <div><h2 id="rec-title">Monthly items</h2><p class="modal-subtitle">They show in "Due this month" — nothing is added until you tap Paid</p></div>

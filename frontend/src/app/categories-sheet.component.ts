@@ -1,3 +1,4 @@
+import { DialogFocusDirective } from './dialog-focus.directive';
 import { Component, EventEmitter, HostListener, Input, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
@@ -17,10 +18,10 @@ const SECTIONS: { bucket: Bucket; label: string; percentKey?: keyof BudgetSettin
 /** Add, rename, hide categories and set a monthly limit on each Need and Want. */
 @Component({
   selector: 'app-categories-sheet',
-  imports: [FormsModule, CurrencyPipe, NgTemplateOutlet, LucideAngularModule],
+  imports: [DialogFocusDirective, FormsModule, CurrencyPipe, NgTemplateOutlet, LucideAngularModule],
   template: `
 <div class="modal-backdrop" (click)="closed.emit()">
-  <section class="entry-modal categories-sheet" role="dialog" aria-modal="true" aria-labelledby="cat-title" (click)="$event.stopPropagation()">
+  <section class="entry-modal categories-sheet" appDialogFocus role="dialog" aria-modal="true" aria-labelledby="cat-title" (click)="$event.stopPropagation()">
     <div class="modal-head">
       <span class="modal-icon modal-income"><i-lucide [img]="icons.Tags"></i-lucide></span>
       <div><h2 id="cat-title">Categories & limits</h2><p class="modal-subtitle">Limits repeat every month · amber at 80%, red when over</p></div>

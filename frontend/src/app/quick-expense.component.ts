@@ -1,3 +1,4 @@
+import { DialogFocusDirective } from './dialog-focus.directive';
 import { Component, EventEmitter, HostListener, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, Check, X, Zap } from 'lucide-angular';
@@ -13,10 +14,10 @@ const DEFAULT_AMOUNTS = [50, 100, 200, 500];
 /** Two-tap logging of an everyday expense, today: amount, category, Save. */
 @Component({
   selector: 'app-quick-expense',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [DialogFocusDirective, FormsModule, LucideAngularModule],
   template: `
 <div class="modal-backdrop" (click)="closed.emit()">
-  <section class="entry-modal quick-sheet" role="dialog" aria-modal="true" aria-labelledby="qe-title" (click)="$event.stopPropagation()">
+  <section class="entry-modal quick-sheet" appDialogFocus role="dialog" aria-modal="true" aria-labelledby="qe-title" (click)="$event.stopPropagation()">
     <div class="modal-head">
       <span class="modal-icon" data-tab="EXPENSE"><i-lucide [img]="icons.Zap"></i-lucide></span>
       <div><h2 id="qe-title">Quick expense</h2><p class="modal-subtitle">Today · amount, category, done</p></div>
